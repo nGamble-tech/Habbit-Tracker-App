@@ -23,3 +23,10 @@ Using SSH:
 git clone git@github.com:YourUsername/HabitTracker-App.git
 cd HabitTracker-App
 ```
+
+## Workflow Example (super short)
+
+1. Create branch: `git checkout -b feature/<name>`
+2. Commit small: `feat(auth): add argon2 hashing`
+3. Open PR into `dev`; someone reviews; merge.
+4. We promote `dev` → `main` when stable.
