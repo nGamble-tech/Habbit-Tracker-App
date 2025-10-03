@@ -43,4 +43,5 @@ Create .env file here as well and copy `_VITE_API_URL=http://localhost:4000_` in
 
 ### 3. Test API
 
-Once dependecies installed and enviroments have been set up, you can test the backend API with Postman, it shouldf be running at `http://localhost:4000`
+Once dependecies installed and enviroments have been set up, you can run the server with `npm run dev` and this will get the ball rolling.
+You can then test the backend API with Postman, it should be running at `http://localhost:4000`.
