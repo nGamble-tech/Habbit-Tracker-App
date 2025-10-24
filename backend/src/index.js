@@ -4,13 +4,29 @@ import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import argon2 from 'argon2';
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM-friendly __dirname
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Root of backend 
+const rootDir = path.resolve(__dirname, '..');
+
+// Resolve DB file path 
+const dbFile = process.env.DB_FILE
+  ? path.resolve(process.env.DB_FILE)
+  : path.join(rootDir, 'data', 'data.db');
+
+// Ensure the data folder exists
+fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: 'http://localhost:5173' })); 
 app.use(express.json());
 
 // ---- DB init ----
-const db = new Database(process.env.DB_FILE || './data.db');
+const db = new Database(dbFile);
 db.pragma('journal_mode = WAL');
 
 // create tables if not exist
