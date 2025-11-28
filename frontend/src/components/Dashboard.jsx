@@ -1,382 +1,648 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
+import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 
-export default function Dashboard({ onLogout }) {
-  const [habits, setHabits] = useState(() => JSON.parse(localStorage.getItem("habits")) || []);
-  const [archived, setArchived] = useState(() => JSON.parse(localStorage.getItem("archivedHabits")) || []);
-  const [dailyCompletion, setDailyCompletion] = useState(() => JSON.parse(localStorage.getItem("dailyCompletion")) || {});
-  const [today] = useState(new Date());
-  const [showModal, setShowModal] = useState(false);
-  const [showArchive, setShowArchive] = useState(false);
+export default function Dashboard() {
+  const { user, logout } = useAuth();
+
+  const [habits, setHabits] = useState([]);
+  const [progress, setProgress] = useState({});
   const [newHabitName, setNewHabitName] = useState("");
-  const [newHabitGoal, setNewHabitGoal] = useState("");
+  const [newHabitFrequency, setNewHabitFrequency] = useState("daily");
+  const [newHabitWindowDays, setNewHabitWindowDays] = useState(7);
+  const [newHabitWindowUnit, setNewHabitWindowUnit] = useState("days");
+  const [newHabitTimesPerDay, setNewHabitTimesPerDay] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
-  // 🌤️ Dynamic background
-  useEffect(() => {
-    const hour = new Date().getHours();
-    let gradient = "";
-    if (hour >= 5 && hour < 12)
-      gradient = "linear-gradient(135deg, #f3f6ff 0%, #eaf8f3 100%)";
-    else if (hour >= 12 && hour < 18)
-      gradient = "linear-gradient(135deg, #eae9ff 0%, #f7f7ff 100%)";
-    else
-      gradient = "linear-gradient(135deg, #e5e5f9 0%, #dcdcf5 100%)";
+  const todayIso = new Date().toISOString().slice(0, 10);
 
-    document.body.style.background = gradient;
-    document.body.style.transition = "background 1s ease";
-  }, []);
+  function getWeekRange(isoDate) {
+    const d = new Date(isoDate);
+    const day = d.getUTCDay(); // 0 (Sun) - 6 (Sat)
+    const diffToMonday = (day + 6) % 7;
+    const start = new Date(d);
+    start.setUTCDate(d.getUTCDate() - diffToMonday);
+    const end = new Date(start);
+    end.setUTCDate(start.getUTCDate() + 6);
+    const toIso = (date) => date.toISOString().slice(0, 10);
+    return { startIso: toIso(start), endIso: toIso(end) };
+  }
 
-  // Persist data
-  useEffect(() => {
-    localStorage.setItem("habits", JSON.stringify(habits));
-    localStorage.setItem("archivedHabits", JSON.stringify(archived));
-    localStorage.setItem("dailyCompletion", JSON.stringify(dailyCompletion));
-  }, [habits, archived, dailyCompletion]);
+  function isWithin(dateStr, startIso, endIso) {
+    return dateStr >= startIso && dateStr <= endIso;
+  }
 
-  const todayKey = today.toISOString().slice(0, 10);
-  const monthYearLabel = today.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const days = ["S", "M", "T", "W", "T", "F", "S"];
-  const currentDayIndex = today.getDay();
+  function getCustomRange(windowDays) {
+    const d = new Date(todayIso);
+    const start = new Date(d);
+    start.setUTCDate(d.getUTCDate() - (Math.max(1, windowDays) - 1));
+    const toIso = (date) => date.toISOString().slice(0, 10);
+    return { startIso: toIso(start), endIso: todayIso };
+  }
 
-  // ✅ Auto-update completion state
-  useEffect(() => {
-    const completedToday = archived.some((a) =>
-      a.completedAt?.startsWith(new Date().toLocaleDateString())
-    );
-    const allDone = habits.length > 0 && habits.every((h) => h.count >= h.goal);
+  function getCustomRangeMonths(windowMonths) {
+    const d = new Date(todayIso);
+    const start = new Date(d);
+    // Move to first day of the month (windowMonths - 1) months ago
+    start.setUTCDate(1);
+    start.setUTCMonth(start.getUTCMonth() - (Math.max(1, windowMonths) - 1));
+    const end = new Date(d);
+    const toIso = (date) => date.toISOString().slice(0, 10);
+    return { startIso: toIso(start), endIso: toIso(end) };
+  }
 
-    setDailyCompletion((prev) => {
-      const newState = { ...prev };
-      if (completedToday || allDone) newState[todayKey] = "complete";
-      else if (habits.length === 0 && !completedToday) delete newState[todayKey];
-      return newState;
-    });
-  }, [habits, archived, todayKey]);
-
-  // ---------------- Logic ----------------
-  const increment = (id) =>
-    setHabits((prev) =>
-      prev.map((h) =>
-        h.id === id && h.count < h.goal ? { ...h, count: h.count + 1 } : h
-      )
-    );
-
-  const decrement = (id) =>
-    setHabits((prev) =>
-      prev.map((h) =>
-        h.id === id && h.count > 0 ? { ...h, count: h.count - 1 } : h
-      )
-    );
-
-  const confirmAddHabit = () => {
-    if (!newHabitName.trim() || !newHabitGoal || newHabitGoal <= 0) {
-      alert("Please enter valid habit details.");
-      return;
+  function computeCount(habit, rows) {
+    if (habit.frequency === "weekly") {
+      const { startIso, endIso } = getWeekRange(todayIso);
+      return rows
+        .filter((row) => row.date && isWithin(row.date, startIso, endIso))
+        .reduce((sum, row) => sum + (Number(row.done) || 0), 0);
     }
-    setHabits((p) => [...p, { id: Date.now(), name: newHabitName, goal: +newHabitGoal, count: 0 }]);
-    setShowModal(false);
-    setNewHabitName("");
-    setNewHabitGoal("");
-  };
 
-  const archiveHabit = (habit) => {
-    const completedAt = new Date().toLocaleDateString() + " " + new Date().toLocaleTimeString();
-    setArchived((p) => [...p, { ...habit, completedAt }]);
-    setHabits((p) => p.filter((h) => h.id !== habit.id));
-  };
+    if (habit.frequency === "monthly") {
+      const { startIso, endIso } = getCustomRangeMonths(1);
+      return rows
+        .filter((row) => row.date && isWithin(row.date, startIso, endIso))
+        .reduce((sum, row) => sum + (Number(row.done) || 0), 0);
+    }
 
-  const restoreHabit = (id) => {
-    const habit = archived.find((h) => h.id === id);
-    if (!habit) return;
-    setArchived((p) => p.filter((h) => h.id !== id));
-    setHabits((p) => [...p, { ...habit, count: 0, completedAt: undefined }]);
-  };
+    if (habit.frequency === "custom") {
+      const windowDays = habit.custom_window_days || 1;
+      const windowUnit = habit.custom_window_unit || "days";
+      const { startIso, endIso } =
+        windowUnit === "months"
+          ? getCustomRangeMonths(windowDays)
+          : getCustomRange(windowDays);
+      return rows
+        .filter((row) => row.date && isWithin(row.date, startIso, endIso))
+        .reduce((sum, row) => sum + (Number(row.done) || 0), 0);
+    }
 
-  const deleteArchived = (id) => {
-    const habitToDelete = archived.find((h) => h.id === id);
-    const remaining = archived.filter((h) => h.id !== id);
-    setArchived(remaining);
+    // daily -> per day
+    const todayRow = rows.find(
+      (row) => row.date === todayIso || row.date?.startsWith(todayIso)
+    );
+    return todayRow ? Number(todayRow.done) || 0 : 0;
+  }
 
-    // 🧩 Remove green ring if last archive for that date is deleted
-    if (habitToDelete?.completedAt) {
-      const dateKey = new Date(habitToDelete.completedAt.split(" ")[0]).toISOString().slice(0, 10);
-      const stillHasThatDay = remaining.some((r) =>
-        r.completedAt?.startsWith(habitToDelete.completedAt.split(" ")[0])
-      );
-      if (!stillHasThatDay) {
-        setDailyCompletion((prev) => {
-          const copy = { ...prev };
-          delete copy[dateKey];
-          return copy;
-        });
+  // Load habits + today's progress counts from backend
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadHabits() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const habitsFromApi = await api.getHabits();
+        if (cancelled) return;
+        setHabits(habitsFromApi);
+
+        const progressMap = {};
+
+        await Promise.all(
+          habitsFromApi.map(async (h) => {
+            const rows = await api.getCompletions(h.id);
+            progressMap[h.id] = computeCount(h, rows);
+          })
+        );
+
+        if (!cancelled) setProgress(progressMap);
+      } catch (e) {
+        console.error("Failed to load habits:", e);
+        if (!cancelled) {
+          setError(e.message || "Failed to load habits");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
-  };
 
-  const clearArchives = () => {
-    if (window.confirm("Clear all archived items?")) {
-      setArchived([]);
-      setDailyCompletion({});
-    }
-  };
-
-  // ✅ Safe Logout (Preserves dashboard data)
-  const logout = () => {
-    if (window.confirm("Logout?")) {
-      localStorage.removeItem("token");
-      localStorage.removeItem("user");
-      localStorage.removeItem("username");
-      alert("✅ Logged out successfully — your dashboard data is safe!");
-      onLogout ? onLogout() : window.location.reload();
-    }
-  };
-
-  const totalProgress =
-    habits.length > 0
-      ? Math.round(
-          (habits.reduce((s, h) => s + Math.min(h.count / h.goal, 1), 0) / habits.length) * 100
-        )
-      : 0;
-
-  const ringStyleForDay = (isoKey, isToday) => {
-    const status = dailyCompletion[isoKey];
-    const base = {
-      width: 30,
-      height: 30,
-      borderRadius: "50%",
-      margin: "6px auto 0",
-      border: "2px solid transparent",
+    loadHabits();
+    return () => {
+      cancelled = true;
     };
-    if (status === "complete") return { ...base, borderColor: "#22c55e" };
-    if (status === "incomplete") return { ...base, borderColor: "#ef4444" };
-    return isToday ? { ...base, borderColor: "#9D8CFF" } : base;
+  }, [todayIso]);
+
+  async function handleAddHabit(e) {
+    e?.preventDefault();
+    if (!newHabitName.trim()) return;
+
+    const parsedTimes = Number(newHabitTimesPerDay);
+    const safeTimesPerDay = Number.isFinite(parsedTimes)
+      ? Math.max(1, Math.min(Math.round(parsedTimes), 24))
+      : 1;
+    const parsedWindow = Number(newHabitWindowDays);
+    const safeWindowDays = Number.isFinite(parsedWindow)
+      ? Math.max(1, Math.min(Math.round(parsedWindow), 365))
+      : 1;
+    const safeWindowUnit = ["days", "months"].includes(newHabitWindowUnit)
+      ? newHabitWindowUnit
+      : "days";
+
+    setSaving(true);
+    setError("");
+
+    try {
+      const created = await api.addHabit({
+        name: newHabitName.trim(),
+        frequency: newHabitFrequency,
+        timesPerDay: safeTimesPerDay,
+        customWindowDays: newHabitFrequency === "custom" ? safeWindowDays : 1,
+        customWindowUnit:
+          newHabitFrequency === "custom" ? safeWindowUnit : "days",
+      });
+
+      setHabits((prev) => [...prev, created]);
+      setProgress((prev) => ({ ...prev, [created.id]: 0 }));
+      setNewHabitName("");
+      setNewHabitFrequency("daily");
+      setNewHabitWindowDays(7);
+      setNewHabitWindowUnit("days");
+      setNewHabitTimesPerDay(1);
+    } catch (e) {
+      console.error("Failed to add habit:", e);
+      setError(e.message || "Failed to add habit");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleAdjust(habitId, delta = 1) {
+    setSaving(true);
+    setError("");
+
+    try {
+      await api.toggleHabit(habitId, todayIso, delta);
+
+      // Re-fetch completions for accurate weekly/daily aggregation
+      const rows = await api.getCompletions(habitId);
+      const habit = habits.find((h) => h.id === habitId);
+      const count = habit ? computeCount(habit, rows) : 0;
+
+      setProgress((prev) => ({
+        ...prev,
+        [habitId]: count,
+      }));
+    } catch (e) {
+      console.error("Failed to update progress:", e);
+      setError(e.message || "Failed to update progress");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(habitId) {
+    if (!window.confirm("Delete this habit?")) return;
+
+    setSaving(true);
+    setError("");
+
+    try {
+      await api.deleteHabit(habitId);
+      setHabits((prev) => prev.filter((h) => h.id !== habitId));
+      setProgress((prev) => {
+        const copy = { ...prev };
+        delete copy[habitId];
+        return copy;
+      });
+    } catch (e) {
+      console.error("Failed to delete habit:", e);
+      setError(e.message || "Failed to delete habit");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleLogout() {
+    if (window.confirm("Logout?")) {
+      logout();
+    }
+  }
+
+  const totalTarget = habits.reduce(
+    (sum, h) => sum + (h.times_per_day || 1),
+    0
+  );
+  const totalDone = habits.reduce((sum, h) => {
+    const target = h.times_per_day || 1;
+    const count = Math.min(progress[h.id] || 0, target);
+    return sum + count;
+  }, 0);
+
+  // --- Styles (soft, colorful, mobile-friendly) ---
+  const container = {
+    minHeight: "100vh",
+    margin: 0,
+    padding: "1.5rem 1rem 2.75rem",
+    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
+    background:
+      "linear-gradient(160deg, #eef2ff 0%, #e0f2fe 40%, #fdf2ff 100%)",
+    color: "#0f172a",
+    display: "flex",
+    justifyContent: "center",
   };
 
-  // 📅 Generate week days + date numbers
-  const weekDates = useMemo(() => {
-    const d = new Date(today);
-    const sunday = new Date(d);
-    sunday.setDate(d.getDate() - d.getDay());
-    return Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(sunday);
-      day.setDate(sunday.getDate() + i);
-      return {
-        key: day.toISOString().slice(0, 10),
-        label: days[i],
-        dateNum: day.getDate(),
-      };
-    });
-  }, [today]);
+  const inner = {
+    width: "100%",
+    maxWidth: 520,
+  };
 
-  // ---------------- Render ----------------
+  const headerRow = {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "1.25rem",
+  };
+
+  const dateText = {
+    fontSize: "0.8rem",
+    color: "#64748b",
+  };
+
+  const titleText = {
+    fontSize: "1.3rem",
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    gap: "0.35rem",
+  };
+
+  const sparkle = {
+    display: "inline-block",
+    width: 18,
+    height: 18,
+    borderRadius: "999px",
+    background:
+      "radial-gradient(circle at 30% 30%, #f9fafb 0%, #a5b4fc 40%, #6366f1 100%)",
+  };
+
+  const userChip = {
+    padding: "0.25rem 0.65rem",
+    borderRadius: 999,
+    background:
+      "linear-gradient(135deg, rgba(129, 140, 248, 0.15), rgba(59, 130, 246, 0.15))",
+    fontSize: "0.8rem",
+    marginBottom: "0.3rem",
+  };
+
+  const logoutBtn = {
+    border: "none",
+    borderRadius: 999,
+    padding: "0.35rem 0.75rem",
+    fontSize: "0.8rem",
+    backgroundColor: "#f9fafb",
+    color: "#0f172a",
+    cursor: "pointer",
+    boxShadow: "0 0 0 1px rgba(148, 163, 184, 0.35)",
+  };
+
+  const statusCard = {
+    background:
+      "linear-gradient(145deg, rgba(129,140,248,0.16), rgba(56,189,248,0.12))",
+    borderRadius: 18,
+    padding: "0.75rem 0.9rem",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: "0.85rem",
+    boxShadow: "0 10px 25px rgba(15,23,42,0.08)",
+  };
+
+  const pillText = {
+    fontSize: "0.8rem",
+    color: "#0f172a",
+  };
+
+  const progressDot = (donePercent) => ({
+    width: 8,
+    height: 8,
+    borderRadius: "999px",
+    marginRight: 6,
+    background: donePercent >= 1 && totalTarget > 0 ? "#22c55e" : "#facc15",
+  });
+
+  const card = (isDone) => ({
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: "0.9rem 0.9rem 0.9rem 0.8rem",
+    marginTop: "0.7rem",
+    boxShadow: "0 8px 20px rgba(15,23,42,0.06)",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    position: "relative",
+    overflow: "hidden",
+    borderLeft: `4px solid ${isDone ? "#22c55e" : "#6366f1"}`,
+  });
+
+  const habitName = {
+    fontWeight: 600,
+    fontSize: "1rem",
+    marginBottom: "0.12rem",
+  };
+
+  const habitMeta = {
+    fontSize: "0.8rem",
+    color: "#6b7280",
+  };
+
+  const cardHighlight = {
+    position: "absolute",
+    inset: 0,
+    background:
+      "radial-gradient(circle at 0 0, rgba(248,250,252,0.8), transparent 55%)",
+    pointerEvents: "none",
+  };
+
+  const buttonsRow = {
+    display: "flex",
+    alignItems: "center",
+    position: "relative",
+    zIndex: 1,
+    gap: "0.4rem",
+  };
+
+  const smallBtn = (variant = "light") => ({
+    border: "none",
+    borderRadius: 10,
+    padding: "0.35rem 0.6rem",
+    fontSize: "0.8rem",
+    cursor: "pointer",
+    backgroundColor: variant === "primary" ? "#6366f1" : "#e5e7eb",
+    color: variant === "primary" ? "#f8fafc" : "#0f172a",
+    fontWeight: 600,
+  });
+
+  const deleteBtn = {
+    border: "none",
+    borderRadius: 10,
+    padding: "0.35rem 0.6rem",
+    fontSize: "0.8rem",
+    cursor: "pointer",
+    backgroundColor: "#fee2e2",
+    color: "#b91c1c",
+  };
+
+  const addForm = {
+    marginTop: "1.2rem",
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: "0.9rem",
+    boxShadow: "0 6px 18px rgba(15,23,42,0.06)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: "0.6rem",
+  };
+
+  const input = {
+    width: "100%",
+    padding: "0.6rem 0.85rem",
+    borderRadius: 999,
+    border: "1px solid #d1d5db",
+    fontSize: "0.9rem",
+    outline: "none",
+    backgroundColor: "#f9fafb",
+  };
+
+  const primaryBtn = {
+    width: "100%",
+    padding: "0.7rem 0.8rem",
+    borderRadius: 999,
+    border: "none",
+    background: "linear-gradient(135deg, #6366f1, #3b82f6)",
+    color: "#ffffff",
+    fontWeight: 600,
+    fontSize: "0.95rem",
+    cursor: "pointer",
+  };
+
+  const progressBarWrapper = {
+    marginTop: 6,
+    width: "100%",
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#e5e7eb",
+    overflow: "hidden",
+  };
+
+  const progressBarFill = (percent) => ({
+    width: `${Math.max(0, Math.min(percent * 100, 100))}%`,
+    height: "100%",
+    background: "linear-gradient(90deg, #6366f1, #22c55e)",
+    transition: "width 150ms ease-out",
+  });
+
+  const donePercent = totalTarget ? totalDone / totalTarget : 0;
+
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        paddingTop: "3rem",
-        fontFamily: "'Times New Roman', serif",
-      }}
-    >
-      <div style={{ width: "100%", maxWidth: 2000, padding: 20 }}>
-        <h1 style={{ fontSize: 32, textAlign: "center", marginBottom: 10 }}>Daily Habits</h1>
-
-        <div style={{ textAlign: "center", marginBottom: 20, fontSize: 20, fontWeight: 600 }}>
-          {monthYearLabel}
-        </div>
-
-        {/* Logout Button */}
-        <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <button onClick={logout} style={ghostBtn}>
-            Logout
-          </button>
-        </div>
-
-        {/* Week Rings + Dates */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(7, 1fr)",
-            textAlign: "center",
-            marginBottom: 30,
-            fontWeight: 600,
-          }}
-        >
-          {weekDates.map((d, i) => {
-            const isToday = i === currentDayIndex;
-            return (
-              <div key={d.key}>
-                <div style={{ color: isToday ? "#9D8CFF" : "#555", fontSize: 18 }}>{d.label}</div>
-                <div style={{ fontSize: 14, color: "#555" }}>{d.dateNum}</div>
-                <div style={ringStyleForDay(d.key, isToday)}></div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Progress Circle */}
-        <h2 style={{ textAlign: "center", marginBottom: 25, fontSize: 26 }}>Today</h2>
-        <div style={{ position: "relative", width: 250, height: 250, margin: "0 auto" }}>
-          <svg viewBox="0 0 36 36" style={{ transform: "rotate(-90deg)" }}>
-            <path
-              d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32"
-              fill="none"
-              stroke="#e5e5e5"
-              strokeWidth="2.5"
-            />
-            <path
-              d="M18 2 a 16 16 0 0 1 0 32 a 16 16 0 0 1 0 -32"
-              fill="none"
-              stroke="#9D8CFF"
-              strokeWidth="4"
-              strokeDasharray={`${totalProgress}, 100`}
-              style={{ transition: "stroke-dasharray 0.6s ease" }}
-            />
-          </svg>
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              fontSize: 36,
-              fontWeight: 700,
-            }}
-          >
-            {totalProgress}%
+    <div style={container}>
+      <div style={inner}>
+        {/* Header */}
+        <div style={headerRow}>
+          <div>
+            <div style={dateText}>Today</div>
+            <div style={titleText}>
+              <span style={sparkle}></span>
+              <span>Daily Habits</span>
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div style={userChip}>
+              {user?.username ? `Hi, ${user.username}` : "Welcome"}
+            </div>
+            <button style={logoutBtn} onClick={handleLogout}>
+              Logout
+            </button>
           </div>
         </div>
 
-        {/* Habits */}
+        {/* Status / progress */}
+        <div style={statusCard}>
+          <div>
+            <div style={{ fontSize: "0.8rem", color: "#0f172a" }}>
+              Progress for today
+            </div>
+            <div style={{ fontSize: "1.05rem", fontWeight: 600 }}>
+              {totalTarget === 0
+                ? "No habits yet"
+                : `${totalDone} of ${totalTarget} actions`}
+            </div>
+            <div style={{ fontSize: "0.8rem", color: "#475569", marginTop: 2 }}>
+              {Math.round(donePercent * 100)}% complete
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <div style={progressDot(donePercent)}></div>
+            <span style={pillText}>
+              {loading
+                ? "Loading..."
+                : donePercent >= 1 && totalTarget > 0
+                ? "Nice work!"
+                : "Keep going"}
+            </span>
+          </div>
+        </div>
+
+        {/* Error message */}
+        {error && (
+          <div
+            style={{
+              backgroundColor: "#fee2e2",
+              color: "#b91c1c",
+              padding: "0.55rem 0.75rem",
+              borderRadius: 10,
+              fontSize: "0.85rem",
+              marginTop: "0.5rem",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {/* Empty state text */}
+        {!loading && totalTarget === 0 && !error && (
+          <div
+            style={{
+              fontSize: "0.9rem",
+              color: "#6b7280",
+              marginTop: "0.6rem",
+            }}
+          >
+            Start small: add 1-2 habits you want to be consistent with.
+          </div>
+        )}
+
+        {/* Habit cards */}
         {habits.map((h) => {
-          const done = h.count >= h.goal;
+          const target = h.times_per_day || 1;
+          const customWindow = h.custom_window_days || 1;
+          const customUnit = h.custom_window_unit || "days";
+          const count = progress[h.id] || 0;
+          const clampedCount = Math.min(count, target);
+          const isDone = clampedCount >= target;
+          const percent = target ? clampedCount / target : 0;
+          const resetDelta = -Math.min(clampedCount, target);
+          const frequencyLabel =
+            h.frequency === "weekly"
+              ? `${target}x this week`
+            : h.frequency === "monthly"
+              ? `${target}x this month`
+            : h.frequency === "custom"
+              ? `${target}x every ${customWindow} ${customUnit === "months" ? "month" : "day"}${customWindow > 1 ? "s" : ""}`
+              : `${target}x per day`;
+
           return (
-            <div
-              key={h.id}
-              style={{
-                marginTop: 25,
-                background: "#fff",
-                borderRadius: 16,
-                padding: 18,
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, fontSize: 18 }}>{h.name}</h3>
-                <p style={{ margin: 0, color: "#777" }}>Goal: {h.goal}</p>
-              </div>
-              {done ? (
-                <button onClick={() => archiveHabit(h)} style={doneBtn}>
-                  ✓
-                </button>
-              ) : (
-                <div>
-                  <div style={countBubble}>{h.count}</div>
-                  <button onClick={() => decrement(h.id)} style={miniBtn}>
-                    −
-                  </button>
-                  <button onClick={() => increment(h.id)} style={miniBtn}>
-                    +
-                  </button>
+            <div key={h.id} style={card(isDone)}>
+              <div style={cardHighlight} />
+              <div style={{ position: "relative", zIndex: 1, width: "60%" }}>
+                <div style={habitName}>{h.name}</div>
+                <div style={habitMeta}>
+                  {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
                 </div>
-              )}
+                <div style={progressBarWrapper}>
+                  <div style={progressBarFill(percent)} />
+                </div>
+              </div>
+              <div style={buttonsRow}>
+                <button
+                  style={smallBtn("light")}
+                  onClick={() => handleAdjust(h.id, -1)}
+                  disabled={clampedCount <= 0 || saving}
+                >
+                  -1
+                </button>
+                <button
+                  style={smallBtn("primary")}
+                  onClick={() => handleAdjust(h.id, isDone ? resetDelta : 1)}
+                  disabled={saving}
+                >
+                  {isDone ? "Reset" : `+1 (${clampedCount}/${target})`}
+                </button>
+                <button
+                  style={deleteBtn}
+                  onClick={() => handleDelete(h.id)}
+                  disabled={saving}
+                >
+                  Delete
+                </button>
+              </div>
             </div>
           );
         })}
 
-        <button onClick={() => setShowModal(true)} style={addMainBtn}>
-          + Add Habit
-        </button>
-
-        {/* Modal */}
-        {showModal && (
-          <div style={modalOverlay}>
-            <div style={modalBox}>
-              <h2>Add New Habit</h2>
-              <input
-                value={newHabitName}
-                onChange={(e) => setNewHabitName(e.target.value)}
-                style={inputStyle}
-                placeholder="Habit Name"
-              />
-              <input
-                type="number"
-                value={newHabitGoal}
-                onChange={(e) => setNewHabitGoal(e.target.value)}
-                style={inputStyle}
-                placeholder="Daily Goal"
-              />
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                <button onClick={() => setShowModal(false)} style={cancelBtn}>
-                  Cancel
-                </button>
-                <button onClick={confirmAddHabit} style={addBtn}>
-                  Add
-                </button>
-              </div>
-            </div>
+        {/* Add habit */}
+        <form style={addForm} onSubmit={handleAddHabit}>
+          <div style={{ fontSize: "0.9rem", marginBottom: "0.2rem" }}>
+            Add a new habit
           </div>
-        )}
-
-        {/* Archive */}
-        <button onClick={() => setShowArchive(!showArchive)} style={ghostBtn}>
-          {showArchive ? "Hide Archive" : `Show Archive (${archived.length})`}
-        </button>
-        {showArchive && (
-          <div style={{ marginTop: 14, background: "#fff", borderRadius: 12, padding: 16 }}>
-            <h3>
-              Archived ({archived.length}){" "}
-              <button onClick={clearArchives} style={dangerGhostBtn}>
-                Clear All
-              </button>
-            </h3>
-            {archived.length === 0
-              ? "No archived habits yet."
-              : archived.map((a) => (
-                  <div
-                    key={a.id}
-                    style={{
-                      borderBottom: "1px solid #eee",
-                      padding: "8px 0",
-                      display: "flex",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <div>
-                      <b>{a.name}</b>
-                      <div style={{ fontSize: 13, color: "#777" }}>
-                        Completed on {a.completedAt}
-                      </div>
-                    </div>
-                    <div>
-                      <button onClick={() => restoreHabit(a.id)} style={ghostBtn}>
-                        ↩ Restore
-                      </button>
-                      <button onClick={() => deleteArchived(a.id)} style={dangerGhostBtn}>
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                ))}
-          </div>
-        )}
+          <input
+            style={{ ...input, textAlign: "center" }}
+            placeholder="e.g. Read, Stretch, Drink water..."
+            value={newHabitName}
+            onChange={(e) => setNewHabitName(e.target.value)}
+            disabled={saving}
+          />
+          <select
+            style={{ ...input, textAlign: "center" }}
+            value={newHabitFrequency}
+            onChange={(e) => setNewHabitFrequency(e.target.value)}
+            disabled={saving}
+          >
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="custom">Custom</option>
+          </select>
+          <input
+            type="number"
+            min={1}
+            max={24}
+            style={{ ...input, textAlign: "center" }}
+            value={newHabitTimesPerDay}
+            onChange={(e) => setNewHabitTimesPerDay(e.target.value)}
+            disabled={saving}
+            placeholder={
+              newHabitFrequency === "weekly"
+                ? "Times per week"
+                : newHabitFrequency === "monthly"
+                ? "Times per month"
+                : newHabitFrequency === "custom"
+                ? "Times per window"
+                : "Times per day"
+            }
+          />
+          {newHabitFrequency === "custom" && (
+            <input
+              type="number"
+              min={1}
+              max={365}
+              style={{ ...input, textAlign: "center" }}
+              value={newHabitWindowDays}
+              onChange={(e) => setNewHabitWindowDays(e.target.value)}
+              disabled={saving}
+              placeholder="Window length in days or months"
+            />
+          )}
+          {newHabitFrequency === "custom" && (
+            <select
+              style={{ ...input, textAlign: "center" }}
+              value={newHabitWindowUnit}
+              onChange={(e) => setNewHabitWindowUnit(e.target.value)}
+              disabled={saving}
+            >
+              <option value="days">Days</option>
+              <option value="months">Months</option>
+            </select>
+          )}
+          <button type="submit" style={primaryBtn} disabled={saving}>
+            {saving ? "Saving..." : "Save habit"}
+          </button>
+        </form>
       </div>
     </div>
   );
 }
-
-/* --- Styles --- */
-const miniBtn = { border: "none", borderRadius: "50%", width: 34, height: 34, cursor: "pointer" };
-const doneBtn = { background: "#22c55e", color: "#fff", border: "none", borderRadius: "50%", width: 44, height: 44, fontSize: 22, cursor: "pointer" };
-const countBubble = { background: "#f1f1f1", borderRadius: "50%", width: 40, height: 40, lineHeight: "40px", textAlign: "center", fontWeight: 600 };
-const addMainBtn = { background: "#9D8CFF", color: "#fff", border: "none", width: "100%", padding: "15px 0", borderRadius: 14, marginTop: 25, cursor: "pointer", fontSize: 18 };
-const ghostBtn = { background: "transparent", border: "1px solid #dcd9ff", color: "#9D8CFF", padding: "6px 10px", borderRadius: 8, cursor: "pointer", marginLeft: 6 };
-const dangerGhostBtn = { ...ghostBtn, borderColor: "#ffd5d5", color: "#ef4444" };
-const cancelBtn = { background: "#ddd", border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer" };
-const addBtn = { background: "#9D8CFF", color: "#fff", border: "none", borderRadius: 8, padding: "8px 12px", cursor: "pointer" };
-const inputStyle = { width: "100%", padding: "10px", borderRadius: 8, border: "1.5px solid #ccc", marginBottom: 10 };
-const modalOverlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", justifyContent: "center", alignItems: "center" };
-const modalBox = { background: "#fff", borderRadius: 16, padding: 20, width: "90%", maxWidth: 420 };

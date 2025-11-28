@@ -25,7 +25,7 @@ async function request(path, { method = "GET", body, auth = true } = {}) {
 }
 
 export const api = {
-  // 🧠 Authentication
+  // Authentication
   login: (username, password) =>
     request("/auth/login", {
       method: "POST",
@@ -40,19 +40,20 @@ export const api = {
       auth: false,
     }),
 
-  // 📋 Habits
+  // Habits
   getHabits: () => request("/habits"),
   addHabit: (habit) => request("/habits", { method: "POST", body: habit }),
+  updateHabit: (id, body) =>
+    request(`/habits/${id}`, { method: "PATCH", body }),
   markDone: (id) => request(`/habits/${id}/done`, { method: "POST" }),
   deleteHabit: (id) => request(`/habits/${id}`, { method: "DELETE" }),
 
-  // 🗓️ NEW Calendar endpoints
-  toggleHabit: (id, date) =>
+  // Calendar / per-day counts
+  toggleHabit: (id, date, delta) =>
     request(`/habits/${id}/toggle`, {
       method: "POST",
-      body: { date },
+      body: { date, delta },
     }),
 
-  getCompletions: (habitId) =>
-    request(`/habits/${habitId}/completions`),
+  getCompletions: (habitId) => request(`/habits/${habitId}/completions`),
 };

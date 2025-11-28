@@ -1,7 +1,11 @@
+// src/components/Login.jsx
 import { useState } from "react";
 import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 
-export default function Login({ onLogin }) {
+export default function Login() {
+  const { login } = useAuth();
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [mode, setMode] = useState("login");
@@ -20,7 +24,10 @@ export default function Login({ onLogin }) {
 
       if (token) {
         localStorage.setItem("token", token);
-        onLogin?.();
+
+        // backend returns { token, user: { id, username } } 
+        const userPayload = res.user || { username };
+        login(userPayload);
       } else {
         setErr("No token returned: " + JSON.stringify(res));
       }
@@ -37,6 +44,7 @@ export default function Login({ onLogin }) {
       setLoading(false);
     }
   };
+
 
   return (
     <div

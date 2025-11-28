@@ -1,15 +1,15 @@
-import { useState, useEffect } from "react";
+// src/App.jsx
+import { useAuth } from "./context/AuthContext";
 import Login from "./components/Login";
 import Dashboard from "./components/Dashboard";
 
 export default function App() {
-  const [authed, setAuthed] = useState(false);
+  const { user } = useAuth();
 
-  useEffect(() => {
-    setAuthed(Boolean(localStorage.getItem("token")));
-  }, []);
-
-  return authed
-    ? <Dashboard onLogout={() => setAuthed(false)} />
-    : <Login onLogin={() => setAuthed(true)} />;
+  
+  return user ? (
+    <Dashboard />
+  ) : (
+    <Login />
+  );
 }

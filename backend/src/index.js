@@ -43,6 +43,9 @@ CREATE TABLE IF NOT EXISTS habits (
   name TEXT NOT NULL,
   frequency TEXT DEFAULT 'daily',
   reminder_time TEXT,
+  times_per_day INTEGER DEFAULT 1,
+  custom_window_days INTEGER DEFAULT 1,
+  custom_window_unit TEXT DEFAULT 'days',
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -62,6 +65,19 @@ CREATE TABLE IF NOT EXISTS completions (
   FOREIGN KEY(habit_id) REFERENCES habits(id)
 );
 `);
+
+// Ensure newer columns exist when running against an older DB file
+function ensureColumn(table, column, definition) {
+  const columns = db.prepare('PRAGMA table_info(' + table + ')').all();
+  const exists = columns.some((col) => col.name === column);
+  if (!exists) {
+    db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  }
+}
+
+ensureColumn('habits', 'times_per_day', 'INTEGER DEFAULT 1');
+ensureColumn('habits', 'custom_window_days', 'INTEGER DEFAULT 1');
+ensureColumn('habits', 'custom_window_unit', "TEXT DEFAULT 'days'");
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev_secret';
 
@@ -124,17 +140,43 @@ app.get('/habits', auth, (req, res) => {
 
 // Add new habit
 app.post('/habits', auth, (req, res) => {
-  const { name, frequency = 'daily', reminder_time = null } = req.body || {};
+  const {
+    name,
+    frequency = 'daily',
+    reminder_time = null,
+    timesPerDay = 1,
+    customWindowDays = 1,
+    customWindowUnit = 'days',
+  } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
+  const parsedTimes = Number(timesPerDay);
+  const safeTimesPerDay = Number.isFinite(parsedTimes)
+    ? Math.max(1, Math.min(Math.round(parsedTimes), 24))
+    : 1;
+  const parsedWindow = Number(customWindowDays);
+  const safeWindowDays = Number.isFinite(parsedWindow)
+    ? Math.max(1, Math.min(Math.round(parsedWindow), 365))
+    : 1;
+  const safeWindowUnit = ['days', 'months'].includes(String(customWindowUnit))
+    ? String(customWindowUnit)
+    : 'days';
 
   const info = db.prepare(
-    'INSERT INTO habits (user_id, name, frequency, reminder_time) VALUES (?, ?, ?, ?)'
-  ).run(req.user.id, name, frequency, reminder_time);
+    'INSERT INTO habits (user_id, name, frequency, reminder_time, times_per_day, custom_window_days, custom_window_unit) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(req.user.id, name, frequency, reminder_time, safeTimesPerDay, safeWindowDays, safeWindowUnit);
 
   db.prepare('INSERT INTO streaks (habit_id, current, longest) VALUES (?, 0, 0)')
     .run(info.lastInsertRowid);
 
-  res.status(201).json({ id: info.lastInsertRowid, name, frequency, reminder_time });
+  res.status(201).json({
+    id: info.lastInsertRowid,
+    name,
+    frequency,
+    reminder_time,
+    times_per_day: safeTimesPerDay,
+    custom_window_days: safeWindowDays,
+    custom_window_unit: safeWindowUnit,
+  });
 });
 
 // Delete habit
@@ -147,29 +189,97 @@ app.delete('/habits/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-// ✅ Toggle daily/weekly completion (supports calendar date clicks)
+// Update habit (times_per_day, custom_window_days, custom_window_unit)
+app.patch('/habits/:id', auth, (req, res) => {
+  const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!habit) return res.status(404).json({ error: 'habit not found' });
+
+  const { timesPerDay, customWindowDays, customWindowUnit } = req.body || {};
+  if (timesPerDay === undefined && customWindowDays === undefined && customWindowUnit === undefined) {
+    return res.status(400).json({ error: 'nothing to update' });
+  }
+
+  let safeTimesPerDay = habit.times_per_day;
+  let safeWindowDays = habit.custom_window_days || 1;
+  let safeWindowUnit = habit.custom_window_unit || 'days';
+
+  if (timesPerDay !== undefined) {
+    const parsedTimes = Number(timesPerDay);
+    if (!Number.isFinite(parsedTimes) || parsedTimes < 1) {
+      return res.status(400).json({ error: 'timesPerDay must be >= 1' });
+    }
+    safeTimesPerDay = Math.max(1, Math.min(Math.round(parsedTimes), 24));
+  }
+
+  if (customWindowDays !== undefined) {
+    const parsedWindow = Number(customWindowDays);
+    if (!Number.isFinite(parsedWindow) || parsedWindow < 1) {
+      return res.status(400).json({ error: 'customWindowDays must be >= 1' });
+    }
+    safeWindowDays = Math.max(1, Math.min(Math.round(parsedWindow), 365));
+  }
+
+  if (customWindowUnit !== undefined) {
+    const unit = String(customWindowUnit);
+    if (!['days', 'months'].includes(unit)) {
+      return res.status(400).json({ error: 'customWindowUnit must be days or months' });
+    }
+    safeWindowUnit = unit;
+  }
+
+  db.prepare('UPDATE habits SET times_per_day = ?, custom_window_days = ?, custom_window_unit = ? WHERE id = ? AND user_id = ?')
+    .run(safeTimesPerDay, safeWindowDays, safeWindowUnit, req.params.id, req.user.id);
+
+  res.json({
+    ...habit,
+    times_per_day: safeTimesPerDay,
+    custom_window_days: safeWindowDays,
+    custom_window_unit: safeWindowUnit,
+  });
+});
+
+// Toggle completion for a specific date (supports increments for multi-per-day habits)
 app.post('/habits/:id/toggle', auth, (req, res) => {
   const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!habit) return res.status(404).json({ error: 'habit not found' });
 
-  // ⬇️ NEW: Accept date from frontend calendar (or default to today)
   const date = req.body?.date || new Date().toISOString().slice(0, 10);
+  const target = habit.times_per_day || 1;
+  const deltaFromBody = Number(req.body?.delta);
+  const hasDelta = Number.isFinite(deltaFromBody);
 
   const existing = db.prepare('SELECT * FROM completions WHERE habit_id = ? AND date = ?')
     .get(habit.id, date);
 
-  if (existing) {
+  const currentCount = existing ? Number(existing.done) || 0 : 0;
+  const nextCount = hasDelta
+    ? currentCount + deltaFromBody
+    : (currentCount >= target ? 0 : currentCount + 1);
+  const clamped = Math.max(0, Math.min(nextCount, target));
+
+  if (clamped === 0 && existing) {
     db.prepare('DELETE FROM completions WHERE id = ?').run(existing.id);
-    res.json({ done: false, date });
+  } else if (clamped === 0 && !existing) {
+    // nothing to delete
+  } else if (existing) {
+    db.prepare('UPDATE completions SET done = ? WHERE id = ?')
+      .run(clamped, existing.id);
   } else {
-    db.prepare('INSERT INTO completions (habit_id, date, done) VALUES (?, ?, 1)')
-      .run(habit.id, date);
-    res.json({ done: true, date });
+    db.prepare('INSERT INTO completions (habit_id, date, done) VALUES (?, ?, ?)')
+      .run(habit.id, date, clamped);
   }
+
+  res.json({
+    date,
+    count: clamped,
+    target,
+    completed: clamped >= target,
+  });
 });
 
-// 🧾 Get all completions for a habit (past 7–31 days for calendars)
+// Get completions (recent history for calendar views)
 app.get('/habits/:id/completions', auth, (req, res) => {
   const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
@@ -183,4 +293,4 @@ app.get('/habits/:id/completions', auth, (req, res) => {
 
 // ----- Start Server -----
 const port = Number(process.env.PORT || 4000);
-app.listen(port, () => console.log(`✅ API listening on http://localhost:${port}`));
+app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
