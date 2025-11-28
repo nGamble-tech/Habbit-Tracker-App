@@ -2,12 +2,16 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import Settings from "./Settings";
+import Analytics from "./Analytics";
 
 export default function Dashboard() {
   const { user } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   const [habits, setHabits] = useState([]);
+  const [archivedHabits, setArchivedHabits] = useState([]);
   const [progress, setProgress] = useState({});
   const [newHabitName, setNewHabitName] = useState("");
   const [newHabitFrequency, setNewHabitFrequency] = useState("daily");
@@ -17,6 +21,10 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [editingHabitId, setEditingHabitId] = useState(null);
+  const [editName, setEditName] = useState("");
+  const [editFrequency, setEditFrequency] = useState("daily");
+  const [editReminder, setEditReminder] = useState("");
 
   const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -87,43 +95,56 @@ export default function Dashboard() {
     return todayRow ? Number(todayRow.done) || 0 : 0;
   }
 
+  async function loadHabits() {
+    setLoading(true);
+    setError("");
+
+    try {
+      const habitsFromApi = await api.getHabits();
+      setHabits(habitsFromApi);
+
+      const progressMap = {};
+
+      await Promise.all(
+        habitsFromApi.map(async (h) => {
+          const rows = await api.getCompletions(h.id);
+          progressMap[h.id] = computeCount(h, rows);
+        })
+      );
+
+      setProgress(progressMap);
+    } catch (e) {
+      console.error("Failed to load habits:", e);
+      setError(e.message || "Failed to load habits");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function loadArchived() {
+    try {
+      const rows = await api.getArchivedHabits();
+      setArchivedHabits(rows);
+    } catch (e) {
+      console.error("Failed to load archived habits:", e);
+      setError(e.message || "Failed to load archived habits");
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
-
-    async function loadHabits() {
-      setLoading(true);
-      setError("");
-
-      try {
-        const habitsFromApi = await api.getHabits();
-        if (cancelled) return;
-        setHabits(habitsFromApi);
-
-        const progressMap = {};
-
-        await Promise.all(
-          habitsFromApi.map(async (h) => {
-            const rows = await api.getCompletions(h.id);
-            progressMap[h.id] = computeCount(h, rows);
-          })
-        );
-
-        if (!cancelled) setProgress(progressMap);
-      } catch (e) {
-        console.error("Failed to load habits:", e);
-        if (!cancelled) {
-          setError(e.message || "Failed to load habits");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
+    (async () => {
+      await loadHabits();
+      if (cancelled) return;
+      if (showArchived) {
+        await loadArchived();
       }
-    }
-
-    loadHabits();
+    })();
     return () => {
       cancelled = true;
     };
-  }, [todayIso]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [todayIso, showArchived]);
 
   async function handleAddHabit(e) {
     e?.preventDefault();
@@ -154,7 +175,10 @@ export default function Dashboard() {
           newHabitFrequency === "custom" ? safeWindowUnit : "days",
       });
 
-      setHabits((prev) => [...prev, created]);
+      setHabits((prev) => [
+        ...prev,
+        { ...created, streak: created.streak ?? 0, last_completed_date: created.last_completed_date ?? null },
+      ]);
       setProgress((prev) => ({ ...prev, [created.id]: 0 }));
       setNewHabitName("");
       setNewHabitFrequency("daily");
@@ -169,6 +193,41 @@ export default function Dashboard() {
     }
   }
 
+  function startEdit(habit) {
+    setEditingHabitId(habit.id);
+    setEditName(habit.name || "");
+    setEditFrequency(habit.frequency || "daily");
+    setEditReminder(habit.reminder_time || "");
+  }
+
+  function cancelEdit() {
+    setEditingHabitId(null);
+    setEditName("");
+    setEditFrequency("daily");
+    setEditReminder("");
+  }
+
+  async function saveEdit(habitId) {
+    if (!editName.trim()) return;
+    setSaving(true);
+    setError("");
+
+    try {
+      await api.updateHabit(habitId, {
+        name: editName.trim(),
+        frequency: editFrequency,
+        reminderTime: editReminder || null,
+      });
+      await loadHabits();
+      cancelEdit();
+    } catch (e) {
+      console.error("Failed to update habit:", e);
+      setError(e.message || "Failed to update habit");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function handleAdjust(habitId, delta = 1) {
     setSaving(true);
     setError("");
@@ -178,6 +237,27 @@ export default function Dashboard() {
       const rows = await api.getCompletions(habitId);
       const habit = habits.find((h) => h.id === habitId);
       const count = habit ? computeCount(habit, rows) : 0;
+      const target = habit ? habit.times_per_day || 1 : 1;
+      let updatedStreak = habit?.streak || 0;
+
+      if (habit && count >= target) {
+        const streakData = await api.markDone(habitId);
+        if (streakData?.streak !== undefined) {
+          updatedStreak = streakData.streak;
+        }
+        setHabits((prev) =>
+          prev.map((h) =>
+            h.id === habitId
+              ? {
+                  ...h,
+                  streak: updatedStreak,
+                  last_completed_date:
+                    streakData?.last_completed_date || h.last_completed_date,
+                }
+              : h
+          )
+        );
+      }
 
       setProgress((prev) => ({
         ...prev,
@@ -191,20 +271,47 @@ export default function Dashboard() {
     }
   }
 
-  async function handleDelete(habitId) {
-    if (!window.confirm("Delete this habit?")) return;
+  async function handleArchive(habitId) {
+    if (!window.confirm("Archive this habit?")) return;
 
     setSaving(true);
     setError("");
 
     try {
+      await api.archiveHabit(habitId);
+      await loadHabits();
+      if (showArchived) await loadArchived();
+    } catch (e) {
+      console.error("Failed to archive habit:", e);
+      setError(e.message || "Failed to archive habit");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleUnarchive(habitId) {
+    setSaving(true);
+    setError("");
+    try {
+      await api.unarchiveHabit(habitId);
+      await loadHabits();
+      await loadArchived();
+    } catch (e) {
+      console.error("Failed to unarchive habit:", e);
+      setError(e.message || "Failed to unarchive habit");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(habitId) {
+    if (!window.confirm("Delete this habit permanently?")) return;
+    setSaving(true);
+    setError("");
+    try {
       await api.deleteHabit(habitId);
-      setHabits((prev) => prev.filter((h) => h.id !== habitId));
-      setProgress((prev) => {
-        const copy = { ...prev };
-        delete copy[habitId];
-        return copy;
-      });
+      await loadHabits();
+      if (showArchived) await loadArchived();
     } catch (e) {
       console.error("Failed to delete habit:", e);
       setError(e.message || "Failed to delete habit");
@@ -225,6 +332,10 @@ export default function Dashboard() {
 
   if (showSettings) {
     return <Settings onBack={() => setShowSettings(false)} />;
+  }
+
+  if (showAnalytics) {
+    return <Analytics onBack={() => setShowAnalytics(false)} />;
   }
 
   // --- Styles ---
@@ -494,6 +605,22 @@ export default function Dashboard() {
               >
                 ⚙️
               </button>
+              <button
+                type="button"
+                style={iconBtn}
+                onClick={() => setShowAnalytics(true)}
+                title="Analytics"
+              >
+                📊
+              </button>
+              <button
+                type="button"
+                style={iconBtn}
+                onClick={() => setShowArchived((prev) => !prev)}
+                title="Archived habits"
+              >
+                {showArchived ? "📂" : "🗂"}
+              </button>
             </div>
           </div>
         </div>
@@ -652,45 +779,170 @@ export default function Dashboard() {
             return (
               <div key={h.id} style={card(isDone)}>
                 <div style={cardHighlight} />
-                <div style={{ position: "relative", zIndex: 1, width: "60%" }}>
-                  <div style={habitName}>{h.name}</div>
-                  <div style={habitMeta}>
-                    {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
-                  </div>
-                  <div style={progressBarWrapper}>
-                    <div style={progressBarFill(percent)} />
-                  </div>
+                <div style={{ position: "relative", zIndex: 1, width: "60%", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                  {editingHabitId === h.id ? (
+                    <>
+                      <input
+                        style={{ ...input, padding: "0.35rem 0.55rem" }}
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        placeholder="Habit name"
+                        disabled={saving}
+                      />
+                      <div style={{ display: "flex", gap: "0.35rem" }}>
+                        <select
+                          style={{ ...input, padding: "0.35rem 0.55rem" }}
+                          value={editFrequency}
+                          onChange={(e) => setEditFrequency(e.target.value)}
+                          disabled={saving}
+                        >
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="monthly">Monthly</option>
+                          <option value="custom">Custom</option>
+                        </select>
+                        <input
+                          style={{ ...input, padding: "0.35rem 0.55rem" }}
+                          placeholder="Reminder (HH:MM)"
+                          value={editReminder || ""}
+                          onChange={(e) => setEditReminder(e.target.value)}
+                          disabled={saving}
+                        />
+                      </div>
+                      <div style={{ display: "flex", gap: "0.4rem" }}>
+                        <button
+                          type="button"
+                          style={smallBtn("primary")}
+                          onClick={() => saveEdit(h.id)}
+                          disabled={saving}
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          style={smallBtn("light")}
+                          onClick={cancelEdit}
+                          disabled={saving}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={habitName}>{h.name}</div>
+                      <div style={habitMeta}>
+                        {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
+                      </div>
+                      <div
+                        style={{
+                          ...habitMeta,
+                          color: "#fb923c",
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.35rem",
+                        }}
+                      >
+                        <span>🔥 Streak:</span>
+                        <span>
+                          {(h.streak ?? 0)} day{(h.streak ?? 0) === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div style={progressBarWrapper}>
+                        <div style={progressBarFill(percent)} />
+                      </div>
+                    </>
+                  )}
                 </div>
-              <div style={buttonsRow}>
-                <button
-                  type="button"
-                  style={smallBtn("light")}
-                  onClick={() => handleAdjust(h.id, -1)}
-                  disabled={clampedCount <= 0 || saving}
-                >
-                  -1
-                </button>
-                <button
-                  type="button"
-                  style={smallBtn("primary")}
-                  onClick={() => handleAdjust(h.id, isDone ? resetDelta : 1)}
-                  disabled={saving}
-                >
-                  {isDone ? "Reset" : `+1 (${clampedCount}/${target})`}
-                </button>
-                <button
-                  type="button"
-                  style={deleteBtn}
-                  onClick={() => handleDelete(h.id)}
-                  disabled={saving}
-                >
-                  Delete
-                  </button>
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", alignItems: "flex-end", position: "relative", zIndex: 1 }}>
+                  <div style={buttonsRow}>
+                    <button
+                      type="button"
+                      style={smallBtn("light")}
+                      onClick={() => handleAdjust(h.id, -1)}
+                      disabled={clampedCount <= 0 || saving}
+                    >
+                      -1
+                    </button>
+                    <button
+                      type="button"
+                      style={smallBtn("primary")}
+                      onClick={() => handleAdjust(h.id, isDone ? resetDelta : 1)}
+                      disabled={saving}
+                    >
+                      {isDone ? "Reset" : `+1 (${clampedCount}/${target})`}
+                    </button>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.35rem" }}>
+                    <button
+                      type="button"
+                      style={smallBtn("light")}
+                      onClick={() => startEdit(h)}
+                      disabled={saving}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      style={deleteBtn}
+                      onClick={() => handleArchive(h.id)}
+                      disabled={saving}
+                    >
+                      Archive
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
+
+        {showArchived && (
+          <div style={{ marginTop: "1.4rem" }}>
+            <div style={{ fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem" }}>
+              Archived habits
+            </div>
+            <div style={habitsGrid}>
+              {archivedHabits.map((h) => (
+                <div key={h.id} style={card(false)}>
+                  <div style={cardHighlight} />
+                  <div style={{ position: "relative", zIndex: 1 }}>
+                    <div style={habitName}>{h.name}</div>
+                    <div style={habitMeta}>
+                      {h.frequency} · reminder {h.reminder_time || "none"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "0.4rem", position: "relative", zIndex: 1 }}>
+                    <button
+                      type="button"
+                      style={smallBtn("light")}
+                      onClick={() => handleUnarchive(h.id)}
+                      disabled={saving}
+                    >
+                      Restore
+                    </button>
+                    <button
+                      type="button"
+                      style={deleteBtn}
+                      onClick={() => handleDelete(h.id)}
+                      disabled={saving}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {!archivedHabits.length && (
+                <div style={{ ...statusCard, gridColumn: "1 / -1", justifyContent: "flex-start" }}>
+                  <div style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
+                    No archived habits yet.
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

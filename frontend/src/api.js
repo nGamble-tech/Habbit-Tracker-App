@@ -77,4 +77,14 @@ export const api = {
   unsubscribePush: (endpoint) =>
     request("/push/unsubscribe", { method: "POST", body: { endpoint } }),
   sendTestPush: () => request("/push/send-test", { method: "POST" }),
+
+  // Analytics
+  getAnalyticsSummary: () => request("/analytics/summary"),
+  getAnalyticsHeatmap: () => request("/analytics/heatmap"),
+  getHabitAnalytics: (id) => request(`/analytics/habit/${id}`),
+
+  // Archiving
+  archiveHabit: (id) => request(`/habits/${id}/archive`, { method: "PATCH" }),
+  unarchiveHabit: (id) => request(`/habits/${id}/unarchive`, { method: "PATCH" }),
+  getArchivedHabits: () => request("/habits/archived"),
 };
