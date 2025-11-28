@@ -1,174 +1,485 @@
 import { useEffect, useState } from "react";
+import { api } from "../api";
+import { useAuth } from "../context/AuthContext";
 
 export default function Settings({ onBack }) {
-  const [darkMode, setDarkMode] = useState(localStorage.getItem("darkMode") === "true");
-  const [notifications, setNotifications] = useState(
-    localStorage.getItem("notifications") === "true"
+  const { user, login, logout } = useAuth();
+
+  const [theme, setTheme] = useState(localStorage.getItem("theme") || "system");
+  const [reminderTime, setReminderTime] = useState(
+    localStorage.getItem("reminder_time") || ""
   );
-  const [email, setEmail] = useState(localStorage.getItem("alertEmail") || "");
-  const [username, setUsername] = useState("Guest");
+  const [newUsername, setNewUsername] = useState(
+    localStorage.getItem("username") || ""
+  );
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [pushEnabled, setPushEnabled] = useState(
+    localStorage.getItem("push_enabled") === "true"
+  );
+  const [pushEndpoint, setPushEndpoint] = useState(
+    localStorage.getItem("push_endpoint") || ""
+  );
 
-  // ✅ Load username properly from localStorage (token payload or saved key)
+  // Prime profile data
   useEffect(() => {
-    const userData = localStorage.getItem("user");
-    const storedName = localStorage.getItem("username");
-
-    if (userData) {
+    (async () => {
       try {
-        const parsed = JSON.parse(userData);
-        // handles both {username} and {user:{username}}
-        const name =
-          parsed.username || parsed.user?.username || storedName || "Guest";
-        setUsername(name);
-      } catch {
-        setUsername(storedName || "Guest");
+        const profile = await api.getProfile();
+        if (profile?.username) {
+          setNewUsername(profile.username);
+          localStorage.setItem("username", profile.username);
+        }
+        if (profile?.theme) {
+          setTheme(profile.theme);
+          localStorage.setItem("theme", profile.theme);
+        }
+        if (profile?.reminder_time !== undefined) {
+          setReminderTime(profile.reminder_time || "");
+          localStorage.setItem("reminder_time", profile.reminder_time || "");
+        }
+      } catch (e) {
+        console.warn("Profile fetch failed:", e);
       }
-    } else if (storedName) {
-      setUsername(storedName);
-    } else {
-      setUsername("Guest");
-    }
+    })();
   }, []);
 
-  // ✅ Persist settings
+  // Apply theme when saved
   useEffect(() => {
-    localStorage.setItem("darkMode", darkMode);
-    localStorage.setItem("notifications", notifications);
-    localStorage.setItem("alertEmail", email);
-  }, [darkMode, notifications, email]);
+    applyTheme(theme);
+  }, [theme]);
 
-  // ✅ Adjust background color for dark/light
-  useEffect(() => {
-    document.body.style.background = darkMode
-      ? "linear-gradient(180deg, #1c1c1c 0%, #2e2e2e 100%)"
-      : "linear-gradient(180deg, #f8f9fa 0%, #eef0f6 100%)";
-    document.body.style.color = darkMode ? "#f1f1f1" : "#1f1f1f";
-  }, [darkMode]);
+  function applyTheme(mode) {
+    const root = document.documentElement;
+    const prefersDark =
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    const resolved = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
+    const themes = {
+      light: {
+        bg: "#f8fafc",
+        fg: "#0b1220",
+        card: "#ffffff",
+        border: "rgba(15,23,42,0.12)",
+        muted: "#475569",
+        accent: "#2563eb",
+        accent2: "#22c55e",
+        inputBg: "#ffffff",
+      },
+      dark: {
+        bg: "#0b1220",
+        fg: "#e2e8f0",
+        card: "rgba(255,255,255,0.06)",
+        border: "rgba(226,232,240,0.12)",
+        muted: "#cbd5e1",
+        accent: "#6366f1",
+        accent2: "#22c55e",
+        inputBg: "rgba(15,23,42,0.5)",
+      },
+    };
+    const t = themes[resolved] || themes.dark;
+    Object.entries(t).forEach(([k, v]) => {
+      root.style.setProperty(`--theme-${k}`, v);
+    });
+    document.body.style.background = t.bg;
+    document.body.style.color = t.fg;
+  }
+
+  const saveAppearance = async () => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const updated = await api.updateProfile({ theme });
+      localStorage.setItem("theme", updated.theme);
+      if (login) login({ ...(user || {}), ...updated });
+      setStatus("Appearance saved");
+    } catch (e) {
+      setStatus(e.message || "Failed to save appearance");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveReminder = async () => {
+    setBusy(true);
+    setStatus("");
+    try {
+      const updated = await api.updateProfile({ reminderTime: reminderTime || null });
+      localStorage.setItem("reminder_time", updated.reminder_time || "");
+      if (login) login({ ...(user || {}), ...updated });
+      setStatus("Reminder saved");
+    } catch (e) {
+      setStatus(e.message || "Failed to save reminder");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  async function registerPush() {
+    try {
+      const perm = await Notification.requestPermission();
+      if (perm !== "granted") throw new Error("Notifications not granted");
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      const { publicKey } = await api.getVapidPublicKey();
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(publicKey || ""),
+      });
+      await api.subscribePush(sub);
+      localStorage.setItem("push_enabled", "true");
+      localStorage.setItem("push_endpoint", sub.endpoint);
+      setPushEnabled(true);
+      setPushEndpoint(sub.endpoint);
+      setStatus("Push enabled");
+    } catch (e) {
+      console.error("Push enable failed:", e);
+      setStatus(e.message || "Failed to enable push");
+      setPushEnabled(false);
+    }
+  }
+
+  async function disablePush() {
+    try {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        const sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await api.unsubscribePush(sub.endpoint);
+          await sub.unsubscribe();
+        }
+      }
+    } catch (e) {
+      console.warn("Failed to unsubscribe push:", e);
+    } finally {
+      localStorage.removeItem("push_enabled");
+      localStorage.removeItem("push_endpoint");
+      setPushEnabled(false);
+      setPushEndpoint("");
+      setStatus("Push disabled");
+    }
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  const saveUsername = async () => {
+    if (!newUsername.trim()) return setStatus("Enter a username");
+    setBusy(true);
+    setStatus("");
+    try {
+      const res = await api.updateUsername(newUsername.trim());
+      if (res.token) localStorage.setItem("token", res.token);
+      if (login) login({ ...(user || {}), ...(res.user || {}), theme, reminder_time: reminderTime });
+      localStorage.setItem("username", newUsername.trim());
+      setStatus("Username updated");
+    } catch (e) {
+      setStatus(e.message || "Failed to update username");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const savePassword = async () => {
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return setStatus("Fill all password fields");
+    }
+    if (newPassword !== confirmPassword) {
+      return setStatus("New passwords do not match");
+    }
+    setBusy(true);
+    setStatus("");
+    try {
+      await api.changePassword(oldPassword, newPassword);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setStatus("Password updated (re-login may be required)");
+    } catch (e) {
+      setStatus(e.message || "Failed to change password");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deleteAccount = async () => {
+    if (!window.confirm("Delete your account and all data?")) return;
+    setBusy(true);
+    setStatus("");
+    try {
+      await api.deleteAccountAuth();
+      logout();
+    } catch (e) {
+      setStatus(e.message || "Failed to delete account");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const validateToken = async () => {
+    setStatus("Checking token...");
+    try {
+      const res = await api.validateToken();
+      setStatus(`Token valid for ${res?.user?.username || "user"}`);
+    } catch (e) {
+      setStatus(e.message || "Token invalid");
+    }
+  };
+
+  const sendTestPush = async () => {
+    setStatus("Sending test push...");
+    try {
+      await api.sendTestPush();
+      setStatus("Test push sent (check your device)");
+    } catch (e) {
+      setStatus(e.message || "Failed to send test push");
+    }
+  };
+
+  const card = {
+    background: "var(--theme-card, rgba(255,255,255,0.06))",
+    border: "1px solid var(--theme-border, rgba(226,232,240,0.12))",
+    borderRadius: 16,
+    padding: "1rem",
+    boxShadow: "0 10px 24px rgba(0,0,0,0.25)",
+    color: "var(--theme-fg, #e2e8f0)",
+  };
+
+  const label = { fontWeight: 600, fontSize: "0.9rem", marginBottom: 6 };
+  const input = {
+    width: "100%",
+    padding: "0.55rem 0.8rem",
+    borderRadius: 10,
+    border: "1px solid var(--theme-border, rgba(226,232,240,0.2))",
+    background: "var(--theme-inputBg, rgba(15,23,42,0.55))",
+    color: "var(--theme-fg, #e2e8f0)",
+    boxSizing: "border-box",
+  };
+  const row = { display: "flex", gap: "0.6rem", flexWrap: "wrap", alignItems: "center" };
+  const btn = {
+    border: "none",
+    borderRadius: 10,
+    padding: "0.6rem 0.8rem",
+    fontWeight: 700,
+    cursor: "pointer",
+  };
 
   return (
     <div
       style={{
         minHeight: "100vh",
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        paddingTop: "3rem",
-        fontFamily: "'Poppins', sans-serif",
-        color: darkMode ? "#f1f1f1" : "#1f1f1f",
+        padding: "1.5rem",
+        background: "var(--theme-bg, #0f172a)",
+        color: "var(--theme-fg, #e2e8f0)",
+        fontFamily: "'Poppins', 'Space Grotesk', system-ui, sans-serif",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 400, padding: 20 }}>
-        {/* Back button */}
-        <button
-          onClick={onBack}
-          style={{
-            background: "none",
-            border: "none",
-            fontSize: 22,
-            cursor: "pointer",
-            color: darkMode ? "#a78bfa" : "#6c63ff",
-            marginBottom: 10,
-          }}
-        >
-          ← Back
-        </button>
-
-        <h1
-          style={{
-            textAlign: "center",
-            backgroundColor: darkMode ? "#444" : "#dcdcdc",
-            borderRadius: 12,
-            padding: "10px 0",
-            fontSize: 24,
-            fontWeight: 600,
-          }}
-        >
-          Settings
-        </h1>
-
-        {/* Profile Section */}
-        <div
-          style={{
-            backgroundColor: darkMode ? "#6c63ff33" : "#e0d9ff",
-            borderRadius: 50,
-            padding: "20px 10px",
-            textAlign: "center",
-            margin: "25px 0",
-          }}
-        >
-          <h2 style={{ margin: "0 0 5px", fontSize: 20 }}>{username}</h2>
-          <p style={{ margin: 0, color: "#555" }}>
-            {email ? email : "No email set"}
-          </p>
+      <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1rem" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ margin: 0, fontWeight: 800 }}>Settings</h2>
+          <button
+            type="button"
+            onClick={onBack}
+            style={{ ...btn, background: "rgba(226,232,240,0.12)", color: "var(--theme-fg, #e2e8f0)" }}
+          >
+            ← Back
+          </button>
         </div>
 
-        {/* Preferences */}
-        <div
-          style={{
-            backgroundColor: darkMode ? "#6c63ff33" : "#d6ccff",
-            borderRadius: 20,
-            padding: 20,
-            boxShadow: "0 4px 10px rgba(0,0,0,0.1)",
-          }}
-        >
-          {/* Notifications */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 15,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              🔔 <span>Push Notifications</span>
-            </div>
-            <input
-              type="checkbox"
-              checked={notifications}
-              onChange={() => setNotifications(!notifications)}
-            />
+        <div style={card}>
+          <div style={label}>Appearance</div>
+          <div style={row}>
+            <select
+              style={input}
+              value={theme}
+              onChange={(e) => setTheme(e.target.value)}
+              disabled={busy}
+            >
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+              <option value="system">System Settings</option>
+            </select>
+            <button
+              type="button"
+              onClick={saveAppearance}
+              disabled={busy}
+              style={{ ...btn, background: "linear-gradient(135deg,#22c55e,#3b82f6)", color: "#0b1220" }}
+            >
+              Save appearance
+            </button>
           </div>
+        </div>
 
-          {/* Dark Mode */}
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 15,
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              🌙 <span>Dark Mode</span>
-            </div>
+        <div style={card}>
+          <div style={label}>Daily reminder</div>
+          <div style={row}>
             <input
-              type="checkbox"
-              checked={darkMode}
-              onChange={() => setDarkMode(!darkMode)}
+              style={{ ...input, maxWidth: 160 }}
+              type="time"
+              value={reminderTime}
+              onChange={(e) => setReminderTime(e.target.value)}
+              disabled={busy}
             />
+            <button
+              type="button"
+              onClick={saveReminder}
+              disabled={busy}
+              style={{ ...btn, background: "linear-gradient(135deg,#22c55e,#3b82f6)", color: "#0b1220" }}
+            >
+              Save reminder
+            </button>
           </div>
+        </div>
 
-          {/* Email Input */}
-          <div style={{ marginTop: 20 }}>
-            <label style={{ fontWeight: 600 }}>Alert Email</label>
+        <div style={card}>
+          <div style={label}>Change username</div>
+          <div style={row}>
             <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. johndoe@gmail.com"
+              style={input}
+              value={newUsername}
+              onChange={(e) => setNewUsername(e.target.value)}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              onClick={saveUsername}
+              disabled={busy}
+              style={{ ...btn, background: "linear-gradient(135deg,#6366f1,#22c55e)", color: "#0b1220" }}
+            >
+              Update
+            </button>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={label}>Change password</div>
+          <div style={row}>
+            <input
+              style={input}
+              type="password"
+              placeholder="Old password"
+              value={oldPassword}
+              onChange={(e) => setOldPassword(e.target.value)}
+              disabled={busy}
+            />
+            <input
+              style={input}
+              type="password"
+              placeholder="New password"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              disabled={busy}
+            />
+            <input
+              style={input}
+              type="password"
+              placeholder="Confirm password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              onClick={savePassword}
+              disabled={busy}
+              style={{ ...btn, background: "linear-gradient(135deg,#22c55e,#10b981)", color: "#0b1220" }}
+            >
+              Save password
+            </button>
+          </div>
+        </div>
+
+        <div style={card}>
+          <div style={label}>Account</div>
+          <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={validateToken}
+              disabled={busy}
+              style={{ ...btn, background: "rgba(226,232,240,0.12)", color: "var(--theme-fg, #e2e8f0)" }}
+            >
+              Validate token
+            </button>
+            <button
+              type="button"
+              onClick={deleteAccount}
+              disabled={busy}
               style={{
-                width: "100%",
-                marginTop: 8,
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid #ccc",
-                outline: "none",
-                fontSize: 15,
+                ...btn,
+                background: "linear-gradient(135deg, #ef4444, #b91c1c)",
+                color: "#fff",
+                fontWeight: 800,
               }}
-            />
+            >
+              Delete account
+            </button>
+            <button
+              type="button"
+              onClick={logout}
+              disabled={busy}
+              style={{ ...btn, background: "rgba(226,232,240,0.12)", color: "var(--theme-fg, #e2e8f0)" }}
+            >
+              Logout
+            </button>
+            <button
+              type="button"
+              onClick={sendTestPush}
+              disabled={busy}
+              style={{ ...btn, background: "linear-gradient(135deg,#22c55e,#3b82f6)", color: "#0b1220" }}
+            >
+              Send test push
+            </button>
           </div>
         </div>
+
+        <div style={card}>
+          <div style={label}>Notifications</div>
+          <div style={row}>
+            <button
+              type="button"
+              onClick={pushEnabled ? disablePush : registerPush}
+              disabled={busy}
+              style={{
+                ...btn,
+                background: pushEnabled
+                  ? "linear-gradient(135deg,#ef4444,#b91c1c)"
+                  : "linear-gradient(135deg,#22c55e,#3b82f6)",
+                color: pushEnabled ? "#fff" : "#0b1220",
+                fontWeight: 700,
+              }}
+            >
+              {pushEnabled ? "Disable push" : "Enable push"}
+            </button>
+            {pushEndpoint && (
+              <span style={{ color: "var(--theme-muted,#94a3b8)", fontSize: "0.8rem" }}>
+                Registered
+              </span>
+            )}
+          </div>
+        </div>
+
+        {status && (
+          <div
+            style={{
+              ...card,
+              background: "rgba(248,113,113,0.08)",
+              border: "1px solid rgba(248,113,113,0.25)",
+              color: "#fecdd3",
+            }}
+          >
+            {status}
+          </div>
+        )}
       </div>
     </div>
   );

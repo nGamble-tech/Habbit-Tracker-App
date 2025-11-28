@@ -56,4 +56,25 @@ export const api = {
     }),
 
   getCompletions: (habitId) => request(`/habits/${habitId}/completions`),
+
+  // User settings
+  getProfile: () => request("/me"),
+  updateProfile: (body) => request("/me", { method: "PATCH", body }),
+  deleteAccount: () => request("/me", { method: "DELETE" }),
+
+  // Auth maintenance
+  updateUsername: (newUsername) =>
+    request("/auth/update-username", { method: "POST", body: { newUsername } }),
+  changePassword: (oldPassword, newPassword) =>
+    request("/auth/change-password", { method: "POST", body: { oldPassword, newPassword } }),
+  validateToken: () => request("/auth/validate"),
+  deleteAccountAuth: () => request("/auth/delete-account", { method: "DELETE" }),
+
+  // Push subscriptions
+  getVapidPublicKey: () => request("/push/public-key", { auth: false }),
+  subscribePush: (subscription) =>
+    request("/push/subscribe", { method: "POST", body: subscription }),
+  unsubscribePush: (endpoint) =>
+    request("/push/unsubscribe", { method: "POST", body: { endpoint } }),
+  sendTestPush: () => request("/push/send-test", { method: "POST" }),
 };

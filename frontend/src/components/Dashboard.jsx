@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
+import Settings from "./Settings";
 
 export default function Dashboard() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
+  const [showSettings, setShowSettings] = useState(false);
 
   const [habits, setHabits] = useState([]);
   const [progress, setProgress] = useState({});
@@ -45,7 +47,6 @@ export default function Dashboard() {
   function getCustomRangeMonths(windowMonths) {
     const d = new Date(todayIso);
     const start = new Date(d);
-    // Move to first day of the month (windowMonths - 1) months ago
     start.setUTCDate(1);
     start.setUTCMonth(start.getUTCMonth() - (Math.max(1, windowMonths) - 1));
     const end = new Date(d);
@@ -80,14 +81,12 @@ export default function Dashboard() {
         .reduce((sum, row) => sum + (Number(row.done) || 0), 0);
     }
 
-    // daily -> per day
     const todayRow = rows.find(
       (row) => row.date === todayIso || row.date?.startsWith(todayIso)
     );
     return todayRow ? Number(todayRow.done) || 0 : 0;
   }
 
-  // Load habits + today's progress counts from backend
   useEffect(() => {
     let cancelled = false;
 
@@ -176,8 +175,6 @@ export default function Dashboard() {
 
     try {
       await api.toggleHabit(habitId, todayIso, delta);
-
-      // Re-fetch completions for accurate weekly/daily aggregation
       const rows = await api.getCompletions(habitId);
       const habit = habits.find((h) => h.id === habitId);
       const count = habit ? computeCount(habit, rows) : 0;
@@ -216,12 +213,6 @@ export default function Dashboard() {
     }
   }
 
-  function handleLogout() {
-    if (window.confirm("Logout?")) {
-      logout();
-    }
-  }
-
   const totalTarget = habits.reduce(
     (sum, h) => sum + (h.times_per_day || 1),
     0
@@ -232,22 +223,25 @@ export default function Dashboard() {
     return sum + count;
   }, 0);
 
-  // --- Styles (soft, colorful, mobile-friendly) ---
+  if (showSettings) {
+    return <Settings onBack={() => setShowSettings(false)} />;
+  }
+
+  // --- Styles ---
   const container = {
     minHeight: "100vh",
     margin: 0,
-    padding: "1.5rem 1rem 2.75rem",
-    fontFamily: "system-ui, -apple-system, BlinkMacSystemFont, sans-serif",
-    background:
-      "linear-gradient(160deg, #eef2ff 0%, #e0f2fe 40%, #fdf2ff 100%)",
-    color: "#0f172a",
+    padding: "1.5rem 1rem 3rem",
+    fontFamily: "'Poppins', 'Space Grotesk', system-ui, -apple-system, sans-serif",
+    background: "var(--theme-bg, #0f172a)",
+    color: "var(--theme-fg, #e5e7eb)",
     display: "flex",
     justifyContent: "center",
   };
 
   const inner = {
     width: "100%",
-    maxWidth: 520,
+    maxWidth: 1100,
   };
 
   const headerRow = {
@@ -255,19 +249,22 @@ export default function Dashboard() {
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: "1.25rem",
+    gap: "1rem",
   };
 
   const dateText = {
     fontSize: "0.8rem",
-    color: "#64748b",
+    color: "var(--theme-muted, #cbd5e1)",
+    letterSpacing: "0.04em",
   };
 
   const titleText = {
-    fontSize: "1.3rem",
-    fontWeight: 700,
+    fontSize: "1.5rem",
+    fontWeight: 800,
     display: "flex",
     alignItems: "center",
-    gap: "0.35rem",
+    gap: "0.45rem",
+    color: "var(--theme-fg, #0b1220)",
   };
 
   const sparkle = {
@@ -276,84 +273,85 @@ export default function Dashboard() {
     height: 18,
     borderRadius: "999px",
     background:
-      "radial-gradient(circle at 30% 30%, #f9fafb 0%, #a5b4fc 40%, #6366f1 100%)",
+      "conic-gradient(from 90deg, var(--theme-accent2, #22c55e), #06b6d4, #6366f1, #f97316, var(--theme-accent2, #22c55e))",
   };
 
   const userChip = {
     padding: "0.25rem 0.65rem",
     borderRadius: 999,
     background:
-      "linear-gradient(135deg, rgba(129, 140, 248, 0.15), rgba(59, 130, 246, 0.15))",
-    fontSize: "0.8rem",
+      "linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(45, 212, 191, 0.18))",
+    fontSize: "0.85rem",
     marginBottom: "0.3rem",
   };
 
-  const logoutBtn = {
+  const iconBtn = {
     border: "none",
     borderRadius: 999,
     padding: "0.35rem 0.75rem",
-    fontSize: "0.8rem",
-    backgroundColor: "#f9fafb",
-    color: "#0f172a",
+    fontSize: "0.9rem",
+    backgroundColor: "rgba(226, 232, 240, 0.12)",
+    color: "#e2e8f0",
     cursor: "pointer",
-    boxShadow: "0 0 0 1px rgba(148, 163, 184, 0.35)",
+    boxShadow: "0 0 0 1px rgba(148, 163, 184, 0.25)",
   };
 
   const statusCard = {
-    background:
-      "linear-gradient(145deg, rgba(129,140,248,0.16), rgba(56,189,248,0.12))",
+    background: "var(--theme-card, rgba(255,255,255,0.06))",
     borderRadius: 18,
-    padding: "0.75rem 0.9rem",
+    padding: "0.9rem 1rem",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "0.85rem",
-    boxShadow: "0 10px 25px rgba(15,23,42,0.08)",
+    boxShadow: "0 12px 30px rgba(0,0,0,0.18)",
   };
 
   const pillText = {
-    fontSize: "0.8rem",
-    color: "#0f172a",
+    fontSize: "0.85rem",
+    color: "var(--theme-fg, #0b1220)",
+    fontWeight: 700,
   };
 
   const progressDot = (donePercent) => ({
-    width: 8,
-    height: 8,
+    width: 10,
+    height: 10,
     borderRadius: "999px",
-    marginRight: 6,
-    background: donePercent >= 1 && totalTarget > 0 ? "#22c55e" : "#facc15",
+    marginRight: 8,
+    background: donePercent >= 1 && totalTarget > 0 ? "var(--theme-accent2, #22c55e)" : "#fbbf24",
+    boxShadow: "0 0 0 6px rgba(251,191,36,0.15)",
   });
 
   const card = (isDone) => ({
-    backgroundColor: "#ffffff",
+    background: "var(--theme-card, rgba(255,255,255,0.06))",
     borderRadius: 18,
-    padding: "0.9rem 0.9rem 0.9rem 0.8rem",
-    marginTop: "0.7rem",
-    boxShadow: "0 8px 20px rgba(15,23,42,0.06)",
+    padding: "1rem 1rem 1rem 0.95rem",
+    boxShadow: "0 12px 32px rgba(0,0,0,0.22)",
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
     position: "relative",
     overflow: "hidden",
-    borderLeft: `4px solid ${isDone ? "#22c55e" : "#6366f1"}`,
+    border: `1px solid ${isDone ? "var(--theme-accent2, rgba(34,197,94,0.4))" : "rgba(99,102,241,0.35)"}`,
+    backdropFilter: "blur(6px)",
   });
 
   const habitName = {
-    fontWeight: 600,
-    fontSize: "1rem",
+    fontWeight: 700,
+    fontSize: "1.05rem",
     marginBottom: "0.12rem",
+    color: "var(--theme-fg, #0b1220)",
   };
 
   const habitMeta = {
     fontSize: "0.8rem",
-    color: "#6b7280",
+    color: "var(--theme-muted, #475569)",
   };
 
   const cardHighlight = {
     position: "absolute",
     inset: 0,
     background:
-      "radial-gradient(circle at 0 0, rgba(248,250,252,0.8), transparent 55%)",
+      "radial-gradient(circle at 0 0, rgba(255,255,255,0.08), transparent 55%)",
     pointerEvents: "none",
   };
 
@@ -371,9 +369,13 @@ export default function Dashboard() {
     padding: "0.35rem 0.6rem",
     fontSize: "0.8rem",
     cursor: "pointer",
-    backgroundColor: variant === "primary" ? "#6366f1" : "#e5e7eb",
-    color: variant === "primary" ? "#f8fafc" : "#0f172a",
-    fontWeight: 600,
+    background:
+      variant === "primary"
+        ? "linear-gradient(135deg, #6366f1, #22c55e)"
+        : "rgba(226,232,240,0.1)",
+    color: variant === "primary" ? "#0b1220" : "#e2e8f0",
+    fontWeight: 700,
+    border: variant === "primary" ? "none" : "1px solid rgba(226,232,240,0.15)",
   });
 
   const deleteBtn = {
@@ -382,42 +384,50 @@ export default function Dashboard() {
     padding: "0.35rem 0.6rem",
     fontSize: "0.8rem",
     cursor: "pointer",
-    backgroundColor: "#fee2e2",
-    color: "#b91c1c",
+    backgroundColor: "rgba(248,113,113,0.14)",
+    color: "#fecdd3",
+    border: "1px solid rgba(248,113,113,0.25)",
   };
 
   const addForm = {
-    marginTop: "1.2rem",
-    backgroundColor: "#ffffff",
+    background: "var(--theme-card, rgba(255,255,255,0.08))",
     borderRadius: 18,
-    padding: "0.9rem",
-    boxShadow: "0 6px 18px rgba(15,23,42,0.06)",
+    padding: "1.1rem",
+    boxShadow: "0 12px 30px rgba(0,0,0,0.2)",
     display: "flex",
     flexDirection: "column",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: "0.6rem",
+    border: "1px solid var(--theme-border, rgba(226,232,240,0.08))",
   };
 
   const input = {
     width: "100%",
-    padding: "0.6rem 0.85rem",
-    borderRadius: 999,
-    border: "1px solid #d1d5db",
+    padding: "0.55rem 0.8rem",
+    borderRadius: 9,
+    border: "1px solid var(--theme-border, rgba(226,232,240,0.15))",
     fontSize: "0.9rem",
     outline: "none",
-    backgroundColor: "#f9fafb",
+    backgroundColor: "var(--theme-inputBg, rgba(15,23,42,0.5))",
+    color: "var(--theme-fg, #0b1220)",
+    boxSizing: "border-box",
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
   };
 
   const primaryBtn = {
+    marginTop: "0.2rem",
     width: "100%",
     padding: "0.7rem 0.8rem",
-    borderRadius: 999,
+    borderRadius: 12,
     border: "none",
-    background: "linear-gradient(135deg, #6366f1, #3b82f6)",
-    color: "#ffffff",
-    fontWeight: 600,
+    background: "linear-gradient(135deg, #22c55e, #3b82f6)",
+    color: "#0b1220",
+    fontWeight: 700,
     fontSize: "0.95rem",
     cursor: "pointer",
+    boxShadow: "0 10px 20px rgba(34,197,94,0.25)",
   };
 
   const progressBarWrapper = {
@@ -425,130 +435,235 @@ export default function Dashboard() {
     width: "100%",
     height: 6,
     borderRadius: 999,
-    backgroundColor: "#e5e7eb",
+    backgroundColor: "rgba(226,232,240,0.18)",
     overflow: "hidden",
   };
 
   const progressBarFill = (percent) => ({
     width: `${Math.max(0, Math.min(percent * 100, 100))}%`,
     height: "100%",
-    background: "linear-gradient(90deg, #6366f1, #22c55e)",
+    background: "linear-gradient(90deg, #22c55e, #14b8a6, #6366f1)",
     transition: "width 150ms ease-out",
   });
+
+  const twoColGrid = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+    gap: "1rem",
+    alignItems: "start",
+    marginBottom: "1rem",
+  };
+
+  const habitsGrid = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+    gap: "0.9rem",
+    marginTop: "0.7rem",
+  };
+
+  const inputRow = {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+    gap: "0.5rem",
+    width: "100%",
+  };
 
   const donePercent = totalTarget ? totalDone / totalTarget : 0;
 
   return (
     <div style={container}>
       <div style={inner}>
-        {/* Header */}
         <div style={headerRow}>
           <div>
             <div style={dateText}>Today</div>
             <div style={titleText}>
               <span style={sparkle}></span>
-              <span>Daily Habits</span>
+              <span>Habit Rhythm</span>
             </div>
           </div>
-          <div style={{ textAlign: "right" }}>
+          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.35rem" }}>
             <div style={userChip}>
               {user?.username ? `Hi, ${user.username}` : "Welcome"}
             </div>
-            <button style={logoutBtn} onClick={handleLogout}>
-              Logout
-            </button>
+            <div style={{ display: "flex", gap: "0.4rem" }}>
+              <button
+                type="button"
+                style={iconBtn}
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+              >
+                ⚙️
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* Status / progress */}
-        <div style={statusCard}>
-          <div>
-            <div style={{ fontSize: "0.8rem", color: "#0f172a" }}>
-              Progress for today
-            </div>
-            <div style={{ fontSize: "1.05rem", fontWeight: 600 }}>
-              {totalTarget === 0
-                ? "No habits yet"
-                : `${totalDone} of ${totalTarget} actions`}
-            </div>
-            <div style={{ fontSize: "0.8rem", color: "#475569", marginTop: 2 }}>
-              {Math.round(donePercent * 100)}% complete
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center" }}>
-            <div style={progressDot(donePercent)}></div>
-            <span style={pillText}>
-              {loading
-                ? "Loading..."
-                : donePercent >= 1 && totalTarget > 0
-                ? "Nice work!"
-                : "Keep going"}
-            </span>
-          </div>
-        </div>
-
-        {/* Error message */}
         {error && (
           <div
             style={{
-              backgroundColor: "#fee2e2",
-              color: "#b91c1c",
+              backgroundColor: "rgba(248,113,113,0.12)",
+              color: "#fecdd3",
               padding: "0.55rem 0.75rem",
               borderRadius: 10,
               fontSize: "0.85rem",
-              marginTop: "0.5rem",
+              marginBottom: "0.5rem",
+              border: "1px solid rgba(248,113,113,0.25)",
             }}
           >
             {error}
           </div>
         )}
 
-        {/* Empty state text */}
+        <div style={twoColGrid}>
+          <div style={statusCard}>
+            <div>
+            <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)" }}>
+              Progress snapshot
+            </div>
+            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--theme-fg, #0b1220)" }}>
+              {totalTarget === 0
+                ? "No habits yet"
+                : `${totalDone} of ${totalTarget} actions`}
+            </div>
+            <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)", marginTop: 2 }}>
+              {Math.round(donePercent * 100)}% complete
+            </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center" }}>
+              <div style={progressDot(donePercent)}></div>
+              <span style={pillText}>
+                {loading
+                  ? "Loading..."
+                  : donePercent >= 1 && totalTarget > 0
+                  ? "Nice work!"
+                  : "Keep going"}
+              </span>
+            </div>
+          </div>
+
+          <form style={addForm} onSubmit={handleAddHabit}>
+            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc" }}>
+              Add a habit
+            </div>
+            <input
+              style={{ ...input, textAlign: "center" }}
+              placeholder="e.g. Read, Stretch, Drink water..."
+              value={newHabitName}
+              onChange={(e) => setNewHabitName(e.target.value)}
+              disabled={saving}
+            />
+            <div style={inputRow}>
+              <select
+                style={{ ...input, textAlign: "center" }}
+                value={newHabitFrequency}
+                onChange={(e) => setNewHabitFrequency(e.target.value)}
+                disabled={saving}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom</option>
+              </select>
+              <input
+                type="number"
+                min={1}
+                max={24}
+                style={{ ...input, textAlign: "center" }}
+                value={newHabitTimesPerDay}
+                onChange={(e) => setNewHabitTimesPerDay(e.target.value)}
+                disabled={saving}
+                placeholder={
+                  newHabitFrequency === "weekly"
+                    ? "Times per week"
+                    : newHabitFrequency === "monthly"
+                    ? "Times per month"
+                    : newHabitFrequency === "custom"
+                    ? "Times per window"
+                    : "Times per day"
+                }
+              />
+            </div>
+            {newHabitFrequency === "custom" && (
+              <div style={inputRow}>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  style={{ ...input, textAlign: "center" }}
+                  value={newHabitWindowDays}
+                  onChange={(e) => setNewHabitWindowDays(e.target.value)}
+                  disabled={saving}
+                  placeholder="Window length"
+                />
+                <select
+                  style={{ ...input, textAlign: "center" }}
+                  value={newHabitWindowUnit}
+                  onChange={(e) => setNewHabitWindowUnit(e.target.value)}
+                  disabled={saving}
+                >
+                  <option value="days">Days</option>
+                  <option value="months">Months</option>
+                </select>
+              </div>
+            )}
+            <button type="submit" style={primaryBtn} disabled={saving}>
+              {saving ? "Saving..." : "Add habit"}
+            </button>
+          </form>
+        </div>
+
         {!loading && totalTarget === 0 && !error && (
           <div
             style={{
               fontSize: "0.9rem",
-              color: "#6b7280",
-              marginTop: "0.6rem",
+              color: "#cbd5e1",
+              marginTop: "0.4rem",
             }}
           >
             Start small: add 1-2 habits you want to be consistent with.
           </div>
         )}
 
-        {/* Habit cards */}
-        {habits.map((h) => {
-          const target = h.times_per_day || 1;
-          const customWindow = h.custom_window_days || 1;
-          const customUnit = h.custom_window_unit || "days";
-          const count = progress[h.id] || 0;
-          const clampedCount = Math.min(count, target);
-          const isDone = clampedCount >= target;
-          const percent = target ? clampedCount / target : 0;
-          const resetDelta = -Math.min(clampedCount, target);
-          const frequencyLabel =
-            h.frequency === "weekly"
-              ? `${target}x this week`
-            : h.frequency === "monthly"
-              ? `${target}x this month`
-            : h.frequency === "custom"
-              ? `${target}x every ${customWindow} ${customUnit === "months" ? "month" : "day"}${customWindow > 1 ? "s" : ""}`
-              : `${target}x per day`;
+        <div style={{ marginTop: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>
+          Your habits
+        </div>
 
-          return (
-            <div key={h.id} style={card(isDone)}>
-              <div style={cardHighlight} />
-              <div style={{ position: "relative", zIndex: 1, width: "60%" }}>
-                <div style={habitName}>{h.name}</div>
-                <div style={habitMeta}>
-                  {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
+        <div style={habitsGrid}>
+          {habits.map((h) => {
+            const target = h.times_per_day || 1;
+            const customWindow = h.custom_window_days || 1;
+            const customUnit = h.custom_window_unit || "days";
+            const count = progress[h.id] || 0;
+            const clampedCount = Math.min(count, target);
+            const isDone = clampedCount >= target;
+            const percent = target ? clampedCount / target : 0;
+            const resetDelta = -Math.min(clampedCount, target);
+            const frequencyLabel =
+              h.frequency === "weekly"
+                ? `${target}x this week`
+                : h.frequency === "monthly"
+                ? `${target}x this month`
+                : h.frequency === "custom"
+                ? `${target}x every ${customWindow} ${
+                    customUnit === "months" ? "month" : "day"
+                  }${customWindow > 1 ? "s" : ""}`
+                : `${target}x per day`;
+
+            return (
+              <div key={h.id} style={card(isDone)}>
+                <div style={cardHighlight} />
+                <div style={{ position: "relative", zIndex: 1, width: "60%" }}>
+                  <div style={habitName}>{h.name}</div>
+                  <div style={habitMeta}>
+                    {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
+                  </div>
+                  <div style={progressBarWrapper}>
+                    <div style={progressBarFill(percent)} />
+                  </div>
                 </div>
-                <div style={progressBarWrapper}>
-                  <div style={progressBarFill(percent)} />
-                </div>
-              </div>
               <div style={buttonsRow}>
                 <button
+                  type="button"
                   style={smallBtn("light")}
                   onClick={() => handleAdjust(h.id, -1)}
                   disabled={clampedCount <= 0 || saving}
@@ -556,6 +671,7 @@ export default function Dashboard() {
                   -1
                 </button>
                 <button
+                  type="button"
                   style={smallBtn("primary")}
                   onClick={() => handleAdjust(h.id, isDone ? resetDelta : 1)}
                   disabled={saving}
@@ -563,85 +679,18 @@ export default function Dashboard() {
                   {isDone ? "Reset" : `+1 (${clampedCount}/${target})`}
                 </button>
                 <button
+                  type="button"
                   style={deleteBtn}
                   onClick={() => handleDelete(h.id)}
                   disabled={saving}
                 >
                   Delete
-                </button>
+                  </button>
+                </div>
               </div>
-            </div>
-          );
-        })}
-
-        {/* Add habit */}
-        <form style={addForm} onSubmit={handleAddHabit}>
-          <div style={{ fontSize: "0.9rem", marginBottom: "0.2rem" }}>
-            Add a new habit
-          </div>
-          <input
-            style={{ ...input, textAlign: "center" }}
-            placeholder="e.g. Read, Stretch, Drink water..."
-            value={newHabitName}
-            onChange={(e) => setNewHabitName(e.target.value)}
-            disabled={saving}
-          />
-          <select
-            style={{ ...input, textAlign: "center" }}
-            value={newHabitFrequency}
-            onChange={(e) => setNewHabitFrequency(e.target.value)}
-            disabled={saving}
-          >
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="custom">Custom</option>
-          </select>
-          <input
-            type="number"
-            min={1}
-            max={24}
-            style={{ ...input, textAlign: "center" }}
-            value={newHabitTimesPerDay}
-            onChange={(e) => setNewHabitTimesPerDay(e.target.value)}
-            disabled={saving}
-            placeholder={
-              newHabitFrequency === "weekly"
-                ? "Times per week"
-                : newHabitFrequency === "monthly"
-                ? "Times per month"
-                : newHabitFrequency === "custom"
-                ? "Times per window"
-                : "Times per day"
-            }
-          />
-          {newHabitFrequency === "custom" && (
-            <input
-              type="number"
-              min={1}
-              max={365}
-              style={{ ...input, textAlign: "center" }}
-              value={newHabitWindowDays}
-              onChange={(e) => setNewHabitWindowDays(e.target.value)}
-              disabled={saving}
-              placeholder="Window length in days or months"
-            />
-          )}
-          {newHabitFrequency === "custom" && (
-            <select
-              style={{ ...input, textAlign: "center" }}
-              value={newHabitWindowUnit}
-              onChange={(e) => setNewHabitWindowUnit(e.target.value)}
-              disabled={saving}
-            >
-              <option value="days">Days</option>
-              <option value="months">Months</option>
-            </select>
-          )}
-          <button type="submit" style={primaryBtn} disabled={saving}>
-            {saving ? "Saving..." : "Save habit"}
-          </button>
-        </form>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

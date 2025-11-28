@@ -23,12 +23,20 @@ export const AuthProvider = ({ children }) => {
     if (data.username) {
       localStorage.setItem('username', data.username);
     }
+    if (data.theme) {
+      localStorage.setItem('theme', data.theme);
+    }
+    if (data.reminder_time !== undefined) {
+      localStorage.setItem('reminder_time', data.reminder_time || '');
+    }
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
     localStorage.removeItem('username');
+    localStorage.removeItem('theme');
+    localStorage.removeItem('reminder_time');
     localStorage.removeItem('token');
   };
 
