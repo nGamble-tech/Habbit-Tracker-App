@@ -1,8 +1,37 @@
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
 import Settings from "./Settings";
 import Analytics from "./Analytics";
+import { PageTransition, FadeIn, PopButton } from "./motionWrappers";
+
+function CloudArchiveIcon({ size = 18 }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <defs>
+        <linearGradient id="cloudGradient" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#fef08a" />
+          <stop offset="100%" stopColor="#facc15" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M7.5 18.5h8a4 4 0 0 0 0-8 5.5 5.5 0 0 0-10.6-1.5A3.5 3.5 0 0 0 7.5 18.5Z"
+        fill="url(#cloudGradient)"
+        stroke="#f8f8f8"
+        strokeWidth="0.6"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -134,6 +163,11 @@ export default function Dashboard() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      try {
+        await api.dailyCheck();
+      } catch (e) {
+        console.error("Daily check failed", e);
+      }
       await loadHabits();
       if (cancelled) return;
       if (showArchived) {
@@ -582,48 +616,54 @@ export default function Dashboard() {
   const donePercent = totalTarget ? totalDone / totalTarget : 0;
 
   return (
-    <div style={container}>
-      <div style={inner}>
-        <div style={headerRow}>
-          <div>
-            <div style={dateText}>Today</div>
-            <div style={titleText}>
-              <span style={sparkle}></span>
-              <span>Habit Rhythm</span>
+    <PageTransition>
+      <div style={container}>
+        <div style={inner}>
+          <FadeIn>
+            <div style={headerRow}>
+              <div>
+                <div style={dateText}>Today</div>
+                <div style={titleText}>
+                  <span style={sparkle}></span>
+                  <span>Habit Rhythm</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.35rem" }}>
+                <div style={userChip}>
+                  {user?.username ? `Hi, ${user.username}` : "Welcome"}
+                </div>
+                <div style={{ display: "flex", gap: "0.4rem" }}>
+                  <PopButton
+                    type="button"
+                    style={iconBtn}
+                    onClick={() => setShowSettings(true)}
+                    title="Settings"
+                  >
+                    ⚙️
+                  </PopButton>
+                  <PopButton
+                    type="button"
+                    style={iconBtn}
+                    onClick={() => setShowAnalytics(true)}
+                    title="Analytics"
+                  >
+                    📊
+                  </PopButton>
+                  <PopButton
+                    type="button"
+                    style={{ ...iconBtn, display: "flex", alignItems: "center", gap: 6 }}
+                    onClick={() => setShowArchived((prev) => !prev)}
+                    title="Archived habits"
+                  >
+                    <CloudArchiveIcon size={18} />
+                    <span style={{ color: "#fef08a", fontWeight: 700 }}>
+                      {showArchived ? "Hide" : "Archive"}
+                    </span>
+                  </PopButton>
+                </div>
+              </div>
             </div>
-          </div>
-          <div style={{ textAlign: "right", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "0.35rem" }}>
-            <div style={userChip}>
-              {user?.username ? `Hi, ${user.username}` : "Welcome"}
-            </div>
-            <div style={{ display: "flex", gap: "0.4rem" }}>
-              <button
-                type="button"
-                style={iconBtn}
-                onClick={() => setShowSettings(true)}
-                title="Settings"
-              >
-                ⚙️
-              </button>
-              <button
-                type="button"
-                style={iconBtn}
-                onClick={() => setShowAnalytics(true)}
-                title="Analytics"
-              >
-                📊
-              </button>
-              <button
-                type="button"
-                style={iconBtn}
-                onClick={() => setShowArchived((prev) => !prev)}
-                title="Archived habits"
-              >
-                {showArchived ? "📂" : "🗂"}
-              </button>
-            </div>
-          </div>
-        </div>
+          </FadeIn>
 
         {error && (
           <div
@@ -642,19 +682,24 @@ export default function Dashboard() {
         )}
 
         <div style={twoColGrid}>
-          <div style={statusCard}>
+          <motion.div
+            style={statusCard}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          >
             <div>
-            <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)" }}>
-              Progress snapshot
-            </div>
-            <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--theme-fg, #0b1220)" }}>
-              {totalTarget === 0
-                ? "No habits yet"
-                : `${totalDone} of ${totalTarget} actions`}
-            </div>
-            <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)", marginTop: 2 }}>
-              {Math.round(donePercent * 100)}% complete
-            </div>
+              <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)" }}>
+                Progress snapshot
+              </div>
+              <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--theme-fg, #0b1220)" }}>
+                {totalTarget === 0
+                  ? "No habits yet"
+                  : `${totalDone} of ${totalTarget} actions`}
+              </div>
+              <div style={{ fontSize: "0.85rem", color: "var(--theme-fg, #0b1220)", marginTop: 2 }}>
+                {Math.round(donePercent * 100)}% complete
+              </div>
             </div>
             <div style={{ display: "flex", alignItems: "center" }}>
               <div style={progressDot(donePercent)}></div>
@@ -666,9 +711,15 @@ export default function Dashboard() {
                   : "Keep going"}
               </span>
             </div>
-          </div>
+          </motion.div>
 
-          <form style={addForm} onSubmit={handleAddHabit}>
+          <motion.form
+            style={addForm}
+            onSubmit={handleAddHabit}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+          >
             <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc" }}>
               Add a habit
             </div>
@@ -733,17 +784,17 @@ export default function Dashboard() {
                 </select>
               </div>
             )}
-            <button type="submit" style={primaryBtn} disabled={saving}>
+            <PopButton type="submit" style={primaryBtn} disabled={saving}>
               {saving ? "Saving..." : "Add habit"}
-            </button>
-          </form>
+            </PopButton>
+          </motion.form>
         </div>
 
         {!loading && totalTarget === 0 && !error && (
           <div
             style={{
               fontSize: "0.9rem",
-              color: "#cbd5e1",
+              color: "var(--theme-muted, #475569)",
               marginTop: "0.4rem",
             }}
           >
@@ -751,11 +802,14 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div style={{ marginTop: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>
-          Your habits
-        </div>
+        <FadeIn>
+          <div style={{ marginTop: "1.1rem", fontWeight: 700, color: "#f8fafc" }}>
+            Your habits
+          </div>
+        </FadeIn>
 
         <div style={habitsGrid}>
+          <AnimatePresence>
           {habits.map((h) => {
             const target = h.times_per_day || 1;
             const customWindow = h.custom_window_days || 1;
@@ -777,7 +831,16 @@ export default function Dashboard() {
                 : `${target}x per day`;
 
             return (
-              <div key={h.id} style={card(isDone)}>
+              <motion.div
+                key={h.id}
+                style={card(isDone)}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+              >
                 <div style={cardHighlight} />
                 <div style={{ position: "relative", zIndex: 1, width: "60%", display: "flex", flexDirection: "column", gap: "0.35rem" }}>
                   {editingHabitId === h.id ? (
@@ -834,7 +897,8 @@ export default function Dashboard() {
                       <div style={habitMeta}>
                         {frequencyLabel} · {percent >= 1 ? "Completed" : "In progress"}
                       </div>
-                      <div
+                      <motion.div
+                        key={h.streak}
                         style={{
                           ...habitMeta,
                           color: "#fb923c",
@@ -843,12 +907,15 @@ export default function Dashboard() {
                           alignItems: "center",
                           gap: "0.35rem",
                         }}
+                        initial={{ scale: 1, opacity: 0.7 }}
+                        animate={{ scale: 1.07, opacity: 1 }}
+                        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                       >
                         <span>🔥 Streak:</span>
                         <span>
                           {(h.streak ?? 0)} day{(h.streak ?? 0) === 1 ? "" : "s"}
                         </span>
-                      </div>
+                      </motion.div>
                       <div style={progressBarWrapper}>
                         <div style={progressBarFill(percent)} />
                       </div>
@@ -857,93 +924,107 @@ export default function Dashboard() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", alignItems: "flex-end", position: "relative", zIndex: 1 }}>
                   <div style={buttonsRow}>
-                    <button
+                    <PopButton
                       type="button"
                       style={smallBtn("light")}
                       onClick={() => handleAdjust(h.id, -1)}
                       disabled={clampedCount <= 0 || saving}
                     >
                       -1
-                    </button>
-                    <button
+                    </PopButton>
+                    <PopButton
                       type="button"
                       style={smallBtn("primary")}
                       onClick={() => handleAdjust(h.id, isDone ? resetDelta : 1)}
                       disabled={saving}
                     >
                       {isDone ? "Reset" : `+1 (${clampedCount}/${target})`}
-                    </button>
+                    </PopButton>
                   </div>
                   <div style={{ display: "flex", gap: "0.35rem" }}>
-                    <button
+                    <PopButton
                       type="button"
                       style={smallBtn("light")}
                       onClick={() => startEdit(h)}
                       disabled={saving}
                     >
                       Edit
-                    </button>
-                    <button
+                    </PopButton>
+                    <PopButton
                       type="button"
                       style={deleteBtn}
                       onClick={() => handleArchive(h.id)}
                       disabled={saving}
                     >
                       Archive
-                    </button>
+                    </PopButton>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
+          </AnimatePresence>
         </div>
 
         {showArchived && (
-          <div style={{ marginTop: "1.4rem" }}>
-            <div style={{ fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem" }}>
-              Archived habits
-            </div>
-            <div style={habitsGrid}>
-              {archivedHabits.map((h) => (
-                <div key={h.id} style={card(false)}>
-                  <div style={cardHighlight} />
-                  <div style={{ position: "relative", zIndex: 1 }}>
-                    <div style={habitName}>{h.name}</div>
-                    <div style={habitMeta}>
-                      {h.frequency} · reminder {h.reminder_time || "none"}
+          <FadeIn>
+            <div style={{ marginTop: "1.4rem" }}>
+              <div style={{ fontWeight: 700, color: "#f8fafc", marginBottom: "0.5rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                <CloudArchiveIcon size={20} />
+                <span>Archived habits</span>
+              </div>
+              <div style={habitsGrid}>
+                <AnimatePresence>
+                  {archivedHabits.map((h) => (
+                    <motion.div
+                      key={h.id}
+                      style={card(false)}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.9 }}
+                      transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      <div style={cardHighlight} />
+                      <div style={{ position: "relative", zIndex: 1 }}>
+                        <div style={habitName}>{h.name}</div>
+                        <div style={habitMeta}>
+                          {h.frequency} · reminder {h.reminder_time || "none"}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: "0.4rem", position: "relative", zIndex: 1 }}>
+                        <PopButton
+                          type="button"
+                          style={smallBtn("light")}
+                          onClick={() => handleUnarchive(h.id)}
+                          disabled={saving}
+                        >
+                          Restore
+                        </PopButton>
+                        <PopButton
+                          type="button"
+                          style={deleteBtn}
+                          onClick={() => handleDelete(h.id)}
+                          disabled={saving}
+                        >
+                          Delete
+                        </PopButton>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                {!archivedHabits.length && (
+                  <div style={{ ...statusCard, gridColumn: "1 / -1", justifyContent: "flex-start" }}>
+                    <div style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
+                      No archived habits yet.
                     </div>
                   </div>
-                  <div style={{ display: "flex", gap: "0.4rem", position: "relative", zIndex: 1 }}>
-                    <button
-                      type="button"
-                      style={smallBtn("light")}
-                      onClick={() => handleUnarchive(h.id)}
-                      disabled={saving}
-                    >
-                      Restore
-                    </button>
-                    <button
-                      type="button"
-                      style={deleteBtn}
-                      onClick={() => handleDelete(h.id)}
-                      disabled={saving}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-              {!archivedHabits.length && (
-                <div style={{ ...statusCard, gridColumn: "1 / -1", justifyContent: "flex-start" }}>
-                  <div style={{ fontSize: "0.9rem", color: "#cbd5e1" }}>
-                    No archived habits yet.
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
-          </div>
+          </FadeIn>
         )}
       </div>
     </div>
+    </PageTransition>
   );
 }

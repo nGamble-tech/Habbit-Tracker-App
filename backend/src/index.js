@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS habits (
   archived INTEGER DEFAULT 0,
   streak INTEGER DEFAULT 0,
   last_completed_date TEXT,
+  last_notified_date TEXT,
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -99,6 +100,7 @@ ensureColumn('habits', 'notify_enabled', 'INTEGER DEFAULT 0');
 ensureColumn('habits', 'archived', 'INTEGER DEFAULT 0');
 ensureColumn('habits', 'streak', 'INTEGER DEFAULT 0');
 ensureColumn('habits', 'last_completed_date', 'TEXT');
+ensureColumn('habits', 'last_notified_date', 'TEXT');
 ensureColumn('users', 'theme', "TEXT DEFAULT 'calm'");
 ensureColumn('users', 'reminder_time', 'TEXT');
 
@@ -179,6 +181,18 @@ function addDays(date, delta) {
   const d = new Date(date);
   d.setUTCDate(d.getUTCDate() + delta);
   return d;
+}
+
+function isSameWeek(isoA, isoB) {
+  const aStart = startOfWeek(toUtcDate(isoA));
+  const bStart = startOfWeek(toUtcDate(isoB));
+  return formatIso(aStart) === formatIso(bStart);
+}
+
+function isSameMonth(isoA, isoB) {
+  const a = toUtcDate(isoA);
+  const b = toUtcDate(isoB);
+  return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth();
 }
 
 function computeStreakFromDates(dates, today = isoToday()) {
@@ -834,6 +848,101 @@ app.get('/analytics/heatmap', auth, (req, res) => {
   res.json(data);
 });
 
+// Daily check/reset streaks (run on app open)
+app.post('/habits/daily-check', auth, (req, res) => {
+  const today = isoToday();
+  const yesterday = isoYesterday();
+
+  const habits = db.prepare('SELECT * FROM habits WHERE user_id = ? AND archived = 0')
+    .all(req.user.id);
+
+  let updated = 0;
+  for (const h of habits) {
+    const last = h.last_completed_date?.slice(0, 10) || null;
+    let keepStreak = false;
+
+    if (h.frequency === 'weekly') {
+      keepStreak = last ? isSameWeek(last, today) : false;
+    } else if (h.frequency === 'monthly') {
+      keepStreak = last ? isSameMonth(last, today) : false;
+    } else {
+      // daily/custom default
+      keepStreak = last === yesterday || last === today;
+    }
+
+    if (!keepStreak && (Number(h.streak) || 0) !== 0) {
+      db.prepare('UPDATE habits SET streak = 0 WHERE id = ?').run(h.id);
+      updated += 1;
+    }
+  }
+
+  res.json({ ok: true, updated, checked: habits.length });
+});
+
 // ----- Start Server -----
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+
+// ----- Reminder Scheduler -----
+function hhmm(date = new Date()) {
+  return date.toTimeString().slice(0, 5); // "HH:MM"
+}
+
+function sendReminderPush(userId, title, body) {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId);
+  if (!subs.length) return;
+
+  const payload = JSON.stringify({ title, body });
+  subs.forEach((s) => {
+    webpush
+      .sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        payload
+      )
+      .catch((err) => {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(s.id);
+        }
+      });
+  });
+}
+
+function checkReminders() {
+  const now = new Date();
+  const today = isoToday();
+  const current = hhmm(now);
+  const habits = db
+    .prepare(
+      `SELECT h.*, u.username FROM habits h
+       JOIN users u ON u.id = h.user_id
+       WHERE h.notify_enabled = 1 AND h.reminder_time IS NOT NULL AND h.archived = 0`
+    )
+    .all();
+
+  habits.forEach((h) => {
+    if (h.reminder_time?.slice(0, 5) !== current) return;
+    if (h.last_notified_date === today) return;
+
+    // If already completed today, skip notifying
+    const completion = db
+      .prepare('SELECT done FROM completions WHERE habit_id = ? AND date = ?')
+      .get(h.id, today);
+    const target = h.times_per_day || 1;
+    const done = completion ? Number(completion.done) || 0 : 0;
+    if (done >= target) {
+      db.prepare('UPDATE habits SET last_notified_date = ? WHERE id = ?').run(today, h.id);
+      return;
+    }
+
+    const title = 'Habit reminder';
+    const body = `${h.name || 'Habit'} is waiting for you.`;
+    sendReminderPush(h.user_id, title, body);
+
+    db.prepare('UPDATE habits SET last_notified_date = ? WHERE id = ?').run(today, h.id);
+  });
+}
+
+setInterval(checkReminders, 60 * 1000);
+// Run once on startup after a short delay
+setTimeout(checkReminders, 5 * 1000);

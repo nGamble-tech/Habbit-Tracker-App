@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
+import { PageTransition, FadeIn } from "./motionWrappers";
 
 export default function Analytics({ onBack }) {
   const [summary, setSummary] = useState(null);
@@ -136,33 +137,36 @@ export default function Analytics({ onBack }) {
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.inner}>
-        <div style={styles.headerRow}>
-          <div>
-            <div style={{ fontSize: "0.8rem", color: "var(--theme-muted, #cbd5e1)" }}>
-              Analytics
+    <PageTransition>
+      <div style={styles.page}>
+        <div style={styles.inner}>
+          <FadeIn>
+            <div style={styles.headerRow}>
+              <div>
+                <div style={{ fontSize: "0.8rem", color: "var(--theme-muted, #cbd5e1)" }}>
+                  Analytics
+                </div>
+                <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f8fafc" }}>
+                  Habit Stats Dashboard
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onBack}
+                style={{
+                  border: "none",
+                  borderRadius: 10,
+                  padding: "0.5rem 0.9rem",
+                  background: "rgba(226,232,240,0.12)",
+                  color: "#e2e8f0",
+                  cursor: "pointer",
+                  boxShadow: "0 0 0 1px rgba(226,232,240,0.18)",
+                }}
+              >
+                ← Back to dashboard
+              </button>
             </div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f8fafc" }}>
-              Habit Stats Dashboard
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onBack}
-            style={{
-              border: "none",
-              borderRadius: 10,
-              padding: "0.5rem 0.9rem",
-              background: "rgba(226,232,240,0.12)",
-              color: "#e2e8f0",
-              cursor: "pointer",
-              boxShadow: "0 0 0 1px rgba(226,232,240,0.18)",
-            }}
-          >
-            ← Back to dashboard
-          </button>
-        </div>
+          </FadeIn>
 
         {error && (
           <div
@@ -328,8 +332,9 @@ export default function Analytics({ onBack }) {
             </div>
           </>
         )}
+        </div>
       </div>
-    </div>
+    </PageTransition>
   );
 }
 

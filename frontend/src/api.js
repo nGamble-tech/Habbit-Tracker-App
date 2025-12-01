@@ -87,4 +87,7 @@ export const api = {
   archiveHabit: (id) => request(`/habits/${id}/archive`, { method: "PATCH" }),
   unarchiveHabit: (id) => request(`/habits/${id}/unarchive`, { method: "PATCH" }),
   getArchivedHabits: () => request("/habits/archived"),
+
+  // Daily check
+  dailyCheck: () => request("/habits/daily-check", { method: "POST" }),
 };
