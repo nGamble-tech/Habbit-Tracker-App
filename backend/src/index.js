@@ -25,8 +25,13 @@ fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 // ----- Express App -----
 const app = express();
 app.use(cors({
-  origin: (origin, callback) => callback(null, true),
-  credentials: true
+  origin: [
+    'http://localhost:5173',
+    'https://habit-rhythm.netlify.app'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 
