@@ -8,7 +8,6 @@ export default defineConfig({
     port: 5173,
     open: true,
     proxy: {
-      // ✅ both routes match your backend exactly
       "/auth": {
         target: "http://localhost:4000",
         changeOrigin: true,

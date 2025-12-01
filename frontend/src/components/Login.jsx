@@ -1,7 +1,9 @@
 // src/components/Login.jsx
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { PageTransition, FadeIn, PopButton } from "./motionWrappers";
 
 export default function Login() {
   const { login } = useAuth();
@@ -47,215 +49,238 @@ export default function Login() {
 
 
   return (
-    <div
-      style={{
-        height: "100vh",
-        width: "100vw",
-        overflow: "hidden",
-        position: "relative",
-        fontFamily: "Poppins, sans-serif",
-      }}
-    >
-      <video
-        autoPlay
-        muted
-        loop
-        playsInline
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          objectFit: "cover",
-          objectPosition: "center",
-          zIndex: 0,
-          filter: "brightness(1)",
-        }}
-      >
-        <source src="/5190557-uhd_4096_2160_25fps.mp4" type="video/mp4" />
-      </video>
-
+    <PageTransition>
       <div
         style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          width: "100%",
-          height: "100%",
-          backgroundColor: "rgba(255, 255, 255, 0.12)",
-          zIndex: 1,
-        }}
-      ></div>
-
-    
-
-      <div
-        style={{
+          minHeight: "100vh",
+          width: "100vw",
+          overflow: "hidden",
           position: "relative",
-          zIndex: 2,
+          fontFamily: "'Poppins', 'Space Grotesk', system-ui, sans-serif",
           display: "flex",
-          alignItems: "flex-start",
-          justifyContent: "flex-end",
-          height: "100%",
-          paddingTop: "8%",
-          paddingRight: "6%",
+          alignItems: "center",
+          justifyContent: "center",
+          background:
+            "radial-gradient(circle at 10% 20%, rgba(99,102,241,0.35), transparent 25%), radial-gradient(circle at 80% 0%, rgba(34,197,94,0.3), transparent 22%), linear-gradient(135deg, #0f172a, #0b1220)",
+          color: "#e2e8f0",
+          padding: "1.5rem",
         }}
       >
         <div
           style={{
-            width: "90%",
-            maxWidth: 280,
-            background: "rgba(255, 255, 255, 0.12)",
-            backdropFilter: "blur(16px)",
-            WebkitBackdropFilter: "blur(16px)",
-            border: "1px solid rgba(255, 255, 255, 0.25)",
-            padding: "1.3rem",
-            borderRadius: "18px",
-            boxShadow: "0 8px 25px rgba(0, 0, 0, 0.08)",
-            textAlign: "center",
-            color: "#111",
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            overflow: "hidden",
           }}
         >
-          <h2
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 0.6, scale: 1 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
             style={{
-              marginBottom: "0.5rem",
-              fontSize: "1.5rem",
-              fontWeight: "700",
-              color: "#111",
+              position: "absolute",
+              width: 280,
+              height: 280,
+              background: "radial-gradient(circle, rgba(14,165,233,0.45), transparent 60%)",
+              top: "12%",
+              left: "8%",
+              filter: "blur(30px)",
+            }}
+          />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 0.45, scale: 1 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
+            style={{
+              position: "absolute",
+              width: 240,
+              height: 240,
+              background: "radial-gradient(circle, rgba(94,234,212,0.35), transparent 60%)",
+              bottom: "10%",
+              right: "12%",
+              filter: "blur(30px)",
+            }}
+          />
+        </div>
+
+        <FadeIn>
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              background: "rgba(255, 255, 255, 0.08)",
+              border: "1px solid rgba(255, 255, 255, 0.18)",
+              borderRadius: 18,
+              backdropFilter: "blur(18px)",
+              WebkitBackdropFilter: "blur(18px)",
+              padding: "1.75rem",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+              position: "relative",
+              overflow: "hidden",
             }}
           >
-            {mode === "login" ? "Login" : "Register"}
-          </h2>
-
-          <form onSubmit={submit}>
-            <div style={{ textAlign: "left", marginBottom: 12 }}>
-              <label style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
-                Username
-              </label>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                style={{
-                  width: "100%",
-                  marginTop: 4,
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  border: "1px solid rgba(255,255,255,0.6)",
-                  background: "rgba(255,255,255,0.35)",
-                  fontSize: "0.9rem",
-                  color: "#111",
-                  outlineColor: "#007BFF",
-                }}
-              />
-            </div>
-
-            <div style={{ textAlign: "left", marginBottom: 12 }}>
-              <label style={{ fontWeight: "bold", fontSize: "0.9rem" }}>
-                Password
-              </label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                style={{
-                  width: "100%",
-                  marginTop: 4,
-                  padding: "8px 10px",
-                  borderRadius: 6,
-                  border: "1px solid rgba(255,255,255,0.6)",
-                  background: "rgba(255,255,255,0.35)",
-                  fontSize: "0.9rem",
-                  color: "#111",
-                  outlineColor: "#007BFF",
-                }}
-              />
-            </div>
-
-            {err && (
-              <div
-                style={{
-                  color: "crimson",
-                  marginBottom: 10,
-                  fontSize: "0.85rem",
-                  textAlign: "center",
-                }}
-              >
-                {err}
-              </div>
-            )}
-
-            <button
-              disabled={loading}
-              type="submit"
+            <div
               style={{
-                width: "100%",
-                padding: "10px",
-                backgroundColor: "rgba(30, 144, 255, 0.9)",
-                color: "white",
-                border: "none",
-                borderRadius: 6,
-                cursor: "pointer",
-                fontWeight: "bold",
-                fontSize: "0.95rem",
-                transition: "background 0.3s ease",
+                position: "absolute",
+                inset: 0,
+                background:
+                  "radial-gradient(circle at 20% 20%, rgba(255,255,255,0.06), transparent 35%)",
+                pointerEvents: "none",
               }}
-              onMouseOver={(e) =>
-                (e.target.style.backgroundColor = "rgba(0, 123, 255, 0.9)")
-              }
-              onMouseOut={(e) =>
-                (e.target.style.backgroundColor = "rgba(30, 144, 255, 0.9)")
-              }
-            >
-              {loading
-                ? "Please wait..."
-                : mode === "login"
-                ? "Login"
-                : "Create account"}
-            </button>
-          </form>
+            />
+            <div style={{ position: "relative", zIndex: 1 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.8rem" }}>
+                <div>
+                  <div style={{ fontSize: "0.85rem", color: "rgba(226,232,240,0.85)" }}>Welcome to</div>
+                  <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f8fafc" }}>Habit Rhythm</div>
+                </div>
+                <div
+                  style={{
+                    padding: "0.35rem 0.6rem",
+                    borderRadius: 999,
+                    background: "linear-gradient(135deg, rgba(99,102,241,0.3), rgba(34,197,94,0.3))",
+                    fontWeight: 700,
+                    color: "#0b1220",
+                  }}
+                >
+                  {mode === "login" ? "Login" : "Register"}
+                </div>
+              </div>
 
-          <div style={{ marginTop: 12, fontSize: "0.85rem" }}>
-            {mode === "login" ? (
-              <span>
-                New here?{" "}
-                <button
-                  onClick={() => setMode("register")}
+              <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: "0.9rem", marginTop: "0.4rem" }}>
+                <div>
+                  <label style={{ fontWeight: 700, fontSize: "0.85rem", color: "rgba(226,232,240,0.9)" }}>
+                    Username
+                  </label>
+                  <motion.input
+                    whileFocus={{ scale: 1.01, boxShadow: "0 0 0 1px rgba(94,234,212,0.4)" }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    required
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "0.75rem 0.85rem",
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      background: "rgba(255,255,255,0.06)",
+                      color: "#f8fafc",
+                      fontSize: "0.95rem",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontWeight: 700, fontSize: "0.85rem", color: "rgba(226,232,240,0.9)" }}>
+                    Password
+                  </label>
+                  <motion.input
+                    whileFocus={{ scale: 1.01, boxShadow: "0 0 0 1px rgba(94,234,212,0.4)" }}
+                    transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    style={{
+                      width: "100%",
+                      marginTop: 6,
+                      padding: "0.75rem 0.85rem",
+                      borderRadius: 12,
+                      border: "1px solid rgba(255,255,255,0.15)",
+                      background: "rgba(255,255,255,0.06)",
+                      color: "#f8fafc",
+                      fontSize: "0.95rem",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+
+                {err && (
+                  <div
+                    style={{
+                      color: "#fda4af",
+                      fontSize: "0.85rem",
+                      background: "rgba(248,113,113,0.12)",
+                      border: "1px solid rgba(248,113,113,0.3)",
+                      padding: "0.5rem 0.65rem",
+                      borderRadius: 10,
+                    }}
+                  >
+                    {err}
+                  </div>
+                )}
+
+                <PopButton
+                  disabled={loading}
+                  type="submit"
                   style={{
+                    width: "100%",
+                    padding: "0.75rem 0.85rem",
+                    borderRadius: 12,
                     border: "none",
-                    background: "none",
-                    color: "#007BFF",
+                    background: "linear-gradient(135deg, #22c55e, #3b82f6)",
+                    color: "#0b1220",
+                    fontWeight: 800,
+                    fontSize: "1rem",
                     cursor: "pointer",
-                    fontWeight: "bold",
-                    fontSize: "0.85rem",
+                    boxShadow: "0 12px 30px rgba(34,197,94,0.35)",
                   }}
                 >
-                  Register
-                </button>
-              </span>
-            ) : (
-              <span>
-                Have an account?{" "}
-                <button
-                  onClick={() => setMode("login")}
-                  style={{
-                    border: "none",
-                    background: "none",
-                    color: "#007BFF",
-                    cursor: "pointer",
-                    fontWeight: "bold",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  Login
-                </button>
-              </span>
-            )}
-          </div>
-        </div>
+                  {loading
+                    ? "Please wait..."
+                    : mode === "login"
+                    ? "Login"
+                    : "Create account"}
+                </PopButton>
+              </form>
+
+              <div style={{ marginTop: 14, fontSize: "0.9rem", color: "rgba(226,232,240,0.9)", textAlign: "center" }}>
+                {mode === "login" ? (
+                  <span>
+                    New here?{" "}
+                    <button
+                      onClick={() => setMode("register")}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        color: "#a5f3fc",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      Register
+                    </button>
+                  </span>
+                ) : (
+                  <span>
+                    Have an account?{" "}
+                    <button
+                      onClick={() => setMode("login")}
+                      style={{
+                        border: "none",
+                        background: "none",
+                        color: "#a5f3fc",
+                        cursor: "pointer",
+                        fontWeight: 700,
+                        fontSize: "0.9rem",
+                      }}
+                    >
+                      Login
+                    </button>
+                  </span>
+                )}
+              </div>
+            </div>
+          </motion.div>
+        </FadeIn>
       </div>
-    </div>
+    </PageTransition>
   );
 }

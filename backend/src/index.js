@@ -50,6 +50,10 @@ CREATE TABLE IF NOT EXISTS habits (
   custom_window_days INTEGER DEFAULT 1,
   custom_window_unit TEXT DEFAULT 'days',
   notify_enabled INTEGER DEFAULT 0,
+  archived INTEGER DEFAULT 0,
+  streak INTEGER DEFAULT 0,
+  last_completed_date TEXT,
+  last_notified_date TEXT,
   FOREIGN KEY(user_id) REFERENCES users(id)
 );
 
@@ -93,6 +97,10 @@ ensureColumn('habits', 'times_per_day', 'INTEGER DEFAULT 1');
 ensureColumn('habits', 'custom_window_days', 'INTEGER DEFAULT 1');
 ensureColumn('habits', 'custom_window_unit', "TEXT DEFAULT 'days'");
 ensureColumn('habits', 'notify_enabled', 'INTEGER DEFAULT 0');
+ensureColumn('habits', 'archived', 'INTEGER DEFAULT 0');
+ensureColumn('habits', 'streak', 'INTEGER DEFAULT 0');
+ensureColumn('habits', 'last_completed_date', 'TEXT');
+ensureColumn('habits', 'last_notified_date', 'TEXT');
 ensureColumn('users', 'theme', "TEXT DEFAULT 'calm'");
 ensureColumn('users', 'reminder_time', 'TEXT');
 
@@ -132,6 +140,87 @@ function passwordStrong(pw) {
   const hasLetter = /[A-Za-z]/.test(pw);
   const hasNumber = /\d/.test(pw);
   return hasLetter && hasNumber;
+}
+
+function isoToday() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isoYesterday() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function toUtcDate(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split('-').map(Number);
+  if (!y || !m || !d) return null;
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function formatIso(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfWeek(date) {
+  const d = new Date(date);
+  const day = d.getUTCDay(); // 0-6, Sunday = 0
+  const diffToMonday = (day + 6) % 7;
+  d.setUTCDate(d.getUTCDate() - diffToMonday);
+  return d;
+}
+
+function startOfMonth(date) {
+  const d = new Date(date);
+  d.setUTCDate(1);
+  return d;
+}
+
+function addDays(date, delta) {
+  const d = new Date(date);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d;
+}
+
+function isSameWeek(isoA, isoB) {
+  const aStart = startOfWeek(toUtcDate(isoA));
+  const bStart = startOfWeek(toUtcDate(isoB));
+  return formatIso(aStart) === formatIso(bStart);
+}
+
+function isSameMonth(isoA, isoB) {
+  const a = toUtcDate(isoA);
+  const b = toUtcDate(isoB);
+  return a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth();
+}
+
+function computeStreakFromDates(dates, today = isoToday()) {
+  if (!dates || !dates.length) return { current: 0, longest: 0 };
+  const sorted = [...dates].sort();
+  let current = 0;
+  let longest = 0;
+  let prev = null;
+  for (const iso of sorted) {
+    if (!prev) {
+      current = 1;
+    } else {
+      const prevDate = toUtcDate(prev);
+      const curDate = toUtcDate(iso);
+      const diffDays = Math.round((curDate - prevDate) / (24 * 3600 * 1000));
+      current = diffDays === 1 ? current + 1 : 1;
+    }
+    if (current > longest) longest = current;
+    prev = iso;
+  }
+
+  const lastIso = sorted[sorted.length - 1];
+  const yesterday = isoYesterday();
+  const isActive =
+    lastIso === today || lastIso === yesterday;
+  if (!isActive) current = 0;
+
+  return { current, longest };
 }
 
 // ----- Routes -----
@@ -288,7 +377,13 @@ app.post('/push/send-test', auth, (req, res) => {
 
 // Get all habits for user
 app.get('/habits', auth, (req, res) => {
-  const rows = db.prepare('SELECT * FROM habits WHERE user_id = ?').all(req.user.id);
+  const rows = db.prepare('SELECT * FROM habits WHERE user_id = ? AND archived = 0').all(req.user.id);
+  res.json(rows);
+});
+
+// Get archived habits
+app.get('/habits/archived', auth, (req, res) => {
+  const rows = db.prepare('SELECT * FROM habits WHERE user_id = ? AND archived = 1').all(req.user.id);
   res.json(rows);
 });
 
@@ -326,7 +421,7 @@ app.post('/habits', auth, (req, res) => {
   const safeNotify = notifyEnabled ? 1 : 0;
 
   const info = db.prepare(
-    'INSERT INTO habits (user_id, name, frequency, reminder_time, times_per_day, custom_window_days, custom_window_unit, notify_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO habits (user_id, name, frequency, reminder_time, times_per_day, custom_window_days, custom_window_unit, notify_enabled, archived, streak, last_completed_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, NULL)'
   ).run(req.user.id, name, frequency, reminder_time, safeTimesPerDay, safeWindowDays, safeWindowUnit, safeNotify);
 
   db.prepare('INSERT INTO streaks (habit_id, current, longest) VALUES (?, 0, 0)')
@@ -341,6 +436,8 @@ app.post('/habits', auth, (req, res) => {
     custom_window_days: safeWindowDays,
     custom_window_unit: safeWindowUnit,
     notify_enabled: safeNotify,
+    streak: 0,
+    last_completed_date: null,
   });
 });
 
@@ -355,14 +452,46 @@ app.delete('/habits/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Archive habit
+app.patch('/habits/:id/archive', auth, (req, res) => {
+  const info = db.prepare('UPDATE habits SET archived = 1 WHERE id = ? AND user_id = ?')
+    .run(req.params.id, req.user.id);
+  if (!info.changes) return res.status(404).json({ error: 'habit not found' });
+  res.json({ ok: true });
+});
+
+// Unarchive habit
+app.patch('/habits/:id/unarchive', auth, (req, res) => {
+  const info = db.prepare('UPDATE habits SET archived = 0 WHERE id = ? AND user_id = ?')
+    .run(req.params.id, req.user.id);
+  if (!info.changes) return res.status(404).json({ error: 'habit not found' });
+  res.json({ ok: true });
+});
+
 // Update habit (times_per_day, custom_window_days, custom_window_unit)
 app.patch('/habits/:id', auth, (req, res) => {
   const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!habit) return res.status(404).json({ error: 'habit not found' });
 
-  const { timesPerDay, customWindowDays, customWindowUnit, notifyEnabled } = req.body || {};
-  if (timesPerDay === undefined && customWindowDays === undefined && customWindowUnit === undefined && notifyEnabled === undefined) {
+  const {
+    timesPerDay,
+    customWindowDays,
+    customWindowUnit,
+    notifyEnabled,
+    name,
+    frequency,
+    reminderTime,
+  } = req.body || {};
+  if (
+    timesPerDay === undefined &&
+    customWindowDays === undefined &&
+    customWindowUnit === undefined &&
+    notifyEnabled === undefined &&
+    name === undefined &&
+    frequency === undefined &&
+    reminderTime === undefined
+  ) {
     return res.status(400).json({ error: 'nothing to update' });
   }
 
@@ -370,6 +499,9 @@ app.patch('/habits/:id', auth, (req, res) => {
   let safeWindowDays = habit.custom_window_days || 1;
   let safeWindowUnit = habit.custom_window_unit || 'days';
   let safeNotify = habit.notify_enabled || 0;
+  let safeName = habit.name;
+  let safeFrequency = habit.frequency || 'daily';
+  let safeReminder = habit.reminder_time;
 
   if (timesPerDay !== undefined) {
     const parsedTimes = Number(timesPerDay);
@@ -399,11 +531,32 @@ app.patch('/habits/:id', auth, (req, res) => {
     safeNotify = notifyEnabled ? 1 : 0;
   }
 
-  db.prepare('UPDATE habits SET times_per_day = ?, custom_window_days = ?, custom_window_unit = ?, notify_enabled = ? WHERE id = ? AND user_id = ?')
-    .run(safeTimesPerDay, safeWindowDays, safeWindowUnit, safeNotify, req.params.id, req.user.id);
+  if (name !== undefined) {
+    const trimmed = String(name).trim();
+    if (!trimmed) return res.status(400).json({ error: 'name required' });
+    safeName = trimmed;
+  }
+
+  if (frequency !== undefined) {
+    const allowed = ['daily', 'weekly', 'monthly', 'custom'];
+    if (!allowed.includes(frequency)) {
+      return res.status(400).json({ error: 'invalid frequency' });
+    }
+    safeFrequency = frequency;
+  }
+
+  if (reminderTime !== undefined) {
+    safeReminder = reminderTime || null;
+  }
+
+  db.prepare('UPDATE habits SET name = ?, frequency = ?, reminder_time = ?, times_per_day = ?, custom_window_days = ?, custom_window_unit = ?, notify_enabled = ? WHERE id = ? AND user_id = ?')
+    .run(safeName, safeFrequency, safeReminder, safeTimesPerDay, safeWindowDays, safeWindowUnit, safeNotify, req.params.id, req.user.id);
 
   res.json({
     ...habit,
+    name: safeName,
+    frequency: safeFrequency,
+    reminder_time: safeReminder,
     times_per_day: safeTimesPerDay,
     custom_window_days: safeWindowDays,
     custom_window_unit: safeWindowUnit,
@@ -467,11 +620,61 @@ app.delete('/me', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Mark a habit as completed for today and update streak
+app.post('/habits/:id/done', auth, (req, res) => {
+  const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!habit) return res.status(404).json({ error: 'habit not found' });
+  if (habit.archived) return res.status(400).json({ error: 'habit is archived' });
+
+  const today = isoToday();
+  const yesterday = isoYesterday();
+  const last = habit.last_completed_date;
+  const currentStreak = Number(habit.streak) || 0;
+
+  let nextStreak = currentStreak;
+  if (!last) {
+    nextStreak = 1;
+  } else if (last === today) {
+    nextStreak = currentStreak;
+  } else if (last === yesterday) {
+    nextStreak = currentStreak + 1;
+  } else {
+    nextStreak = 1;
+  }
+
+  const target = habit.times_per_day || 1;
+  const existing = db.prepare('SELECT * FROM completions WHERE habit_id = ? AND date = ?')
+    .get(habit.id, today);
+  const existingDone = existing ? Number(existing.done) || 0 : 0;
+  const clamped = Math.max(existingDone, target);
+
+  if (existing) {
+    if (existingDone < clamped) {
+      db.prepare('UPDATE completions SET done = ? WHERE id = ?')
+        .run(clamped, existing.id);
+    }
+  } else {
+    db.prepare('INSERT INTO completions (habit_id, date, done) VALUES (?, ?, ?)')
+      .run(habit.id, today, clamped);
+  }
+
+  db.prepare('UPDATE habits SET streak = ?, last_completed_date = ? WHERE id = ?')
+    .run(nextStreak, today, habit.id);
+
+  res.json({
+    habit_id: habit.id,
+    streak: nextStreak,
+    last_completed_date: today,
+  });
+});
+
 // Toggle completion for a specific date (supports increments for multi-per-day habits)
 app.post('/habits/:id/toggle', auth, (req, res) => {
   const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!habit) return res.status(404).json({ error: 'habit not found' });
+  if (habit.archived) return res.status(400).json({ error: 'habit is archived' });
 
   const date = req.body?.date || new Date().toISOString().slice(0, 10);
   const target = habit.times_per_day || 1;
@@ -512,6 +715,7 @@ app.get('/habits/:id/completions', auth, (req, res) => {
   const habit = db.prepare('SELECT * FROM habits WHERE id = ? AND user_id = ?')
     .get(req.params.id, req.user.id);
   if (!habit) return res.status(404).json({ error: 'habit not found' });
+  if (habit.archived) return res.status(400).json({ error: 'habit is archived' });
 
   const rows = db.prepare(
     'SELECT date, done FROM completions WHERE habit_id = ? ORDER BY date DESC LIMIT 31'
@@ -519,6 +723,226 @@ app.get('/habits/:id/completions', auth, (req, res) => {
   res.json(rows);
 });
 
+// ----- Analytics -----
+app.get('/analytics/summary', auth, (req, res) => {
+  const todayIso = isoToday();
+  const todayDate = toUtcDate(todayIso);
+  const startWeek = startOfWeek(todayDate);
+  const startMonth = startOfMonth(todayDate);
+  const start30 = addDays(todayDate, -29);
+
+  const habits = db.prepare('SELECT id, name, frequency, times_per_day, streak FROM habits WHERE user_id = ?')
+    .all(req.user.id);
+
+  const completions = db.prepare(
+    'SELECT c.habit_id, c.date, c.done FROM completions c JOIN habits h ON h.id = c.habit_id WHERE h.user_id = ?'
+  ).all(req.user.id);
+
+  const dailyCounts = {};
+  const habitCompletionDates = new Map();
+  const habitDoneLast30 = new Map();
+  let totalCompletionsThisWeek = 0;
+  let totalCompletionsThisMonth = 0;
+
+  for (const row of completions) {
+    const iso = row.date?.slice(0, 10);
+    if (!iso) continue;
+    const count = Number(row.done) || 0;
+    dailyCounts[iso] = (dailyCounts[iso] || 0) + count;
+
+    const d = toUtcDate(iso);
+    if (d >= startWeek) totalCompletionsThisWeek += count;
+    if (d >= startMonth) totalCompletionsThisMonth += count;
+    if (d >= start30) {
+      habitDoneLast30.set(
+        row.habit_id,
+        (habitDoneLast30.get(row.habit_id) || 0) + count
+      );
+    }
+
+    if (count > 0) {
+      if (!habitCompletionDates.has(row.habit_id)) {
+        habitCompletionDates.set(row.habit_id, []);
+      }
+      habitCompletionDates.get(row.habit_id).push(iso);
+    }
+  }
+
+  let longestOverall = 0;
+  let currentOverall = 0;
+  const habitsSummary = habits.map((h) => {
+    const dates = habitCompletionDates.get(h.id) || [];
+    const { current, longest } = computeStreakFromDates(dates, todayIso);
+    if (longest > longestOverall) longestOverall = longest;
+    if (current > currentOverall) currentOverall = current;
+
+    const totalDone30 = habitDoneLast30.get(h.id) || 0;
+    const targetPerDay = Math.max(1, Number(h.times_per_day) || 1);
+    const expected = targetPerDay * 30;
+    const completionRate = expected ? Math.min(1, totalDone30 / expected) : 0;
+
+    return {
+      id: h.id,
+      name: h.name,
+      streak: current,
+      longest,
+      completionRate,
+    };
+  });
+
+  const avgStreak =
+    habitsSummary.length === 0
+      ? 0
+      : habitsSummary.reduce((sum, h) => sum + (h.streak || 0), 0) /
+        habitsSummary.length;
+
+  res.json({
+    totalCompletionsThisWeek,
+    totalCompletionsThisMonth,
+    streaks: {
+      current: currentOverall,
+      longest: longestOverall,
+      average: avgStreak,
+    },
+    habits: habitsSummary,
+    dailyCounts,
+  });
+});
+
+app.get('/analytics/habit/:id', auth, (req, res) => {
+  const habit = db.prepare('SELECT id FROM habits WHERE id = ? AND user_id = ?')
+    .get(req.params.id, req.user.id);
+  if (!habit) return res.status(404).json({ error: 'habit not found' });
+
+  const rows = db.prepare(
+    'SELECT date FROM completions WHERE habit_id = ? AND done > 0 ORDER BY date ASC'
+  ).all(req.params.id);
+  const datesCompleted = rows.map((r) => r.date?.slice(0, 10)).filter(Boolean);
+
+  res.json({
+    habit_id: Number(req.params.id),
+    datesCompleted,
+  });
+});
+
+app.get('/analytics/heatmap', auth, (req, res) => {
+  const today = isoToday();
+  const endDate = toUtcDate(today);
+  const start = addDays(endDate, -89);
+
+  const counts = {};
+  const rows = db.prepare(
+    'SELECT c.date, SUM(c.done) as total FROM completions c JOIN habits h ON h.id = c.habit_id WHERE h.user_id = ? GROUP BY c.date'
+  ).all(req.user.id);
+  for (const r of rows) {
+    const iso = r.date?.slice(0, 10);
+    if (iso) counts[iso] = Number(r.total) || 0;
+  }
+
+  const data = [];
+  for (let d = new Date(start); d <= endDate; d = addDays(d, 1)) {
+    const iso = formatIso(d);
+    data.push({ date: iso, count: counts[iso] || 0 });
+  }
+
+  res.json(data);
+});
+
+// Daily check/reset streaks (run on app open)
+app.post('/habits/daily-check', auth, (req, res) => {
+  const today = isoToday();
+  const yesterday = isoYesterday();
+
+  const habits = db.prepare('SELECT * FROM habits WHERE user_id = ? AND archived = 0')
+    .all(req.user.id);
+
+  let updated = 0;
+  for (const h of habits) {
+    const last = h.last_completed_date?.slice(0, 10) || null;
+    let keepStreak = false;
+
+    if (h.frequency === 'weekly') {
+      keepStreak = last ? isSameWeek(last, today) : false;
+    } else if (h.frequency === 'monthly') {
+      keepStreak = last ? isSameMonth(last, today) : false;
+    } else {
+      // daily/custom default
+      keepStreak = last === yesterday || last === today;
+    }
+
+    if (!keepStreak && (Number(h.streak) || 0) !== 0) {
+      db.prepare('UPDATE habits SET streak = 0 WHERE id = ?').run(h.id);
+      updated += 1;
+    }
+  }
+
+  res.json({ ok: true, updated, checked: habits.length });
+});
+
 // ----- Start Server -----
 const port = Number(process.env.PORT || 4000);
 app.listen(port, () => console.log(`API listening on http://localhost:${port}`));
+
+// ----- Reminder Scheduler -----
+function hhmm(date = new Date()) {
+  return date.toTimeString().slice(0, 5); // "HH:MM"
+}
+
+function sendReminderPush(userId, title, body) {
+  if (!VAPID_PUBLIC || !VAPID_PRIVATE) return;
+  const subs = db.prepare('SELECT * FROM push_subscriptions WHERE user_id = ?').all(userId);
+  if (!subs.length) return;
+
+  const payload = JSON.stringify({ title, body });
+  subs.forEach((s) => {
+    webpush
+      .sendNotification(
+        { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
+        payload
+      )
+      .catch((err) => {
+        if (err.statusCode === 410 || err.statusCode === 404) {
+          db.prepare('DELETE FROM push_subscriptions WHERE id = ?').run(s.id);
+        }
+      });
+  });
+}
+
+function checkReminders() {
+  const now = new Date();
+  const today = isoToday();
+  const current = hhmm(now);
+  const habits = db
+    .prepare(
+      `SELECT h.*, u.username FROM habits h
+       JOIN users u ON u.id = h.user_id
+       WHERE h.notify_enabled = 1 AND h.reminder_time IS NOT NULL AND h.archived = 0`
+    )
+    .all();
+
+  habits.forEach((h) => {
+    if (h.reminder_time?.slice(0, 5) !== current) return;
+    if (h.last_notified_date === today) return;
+
+    // If already completed today, skip notifying
+    const completion = db
+      .prepare('SELECT done FROM completions WHERE habit_id = ? AND date = ?')
+      .get(h.id, today);
+    const target = h.times_per_day || 1;
+    const done = completion ? Number(completion.done) || 0 : 0;
+    if (done >= target) {
+      db.prepare('UPDATE habits SET last_notified_date = ? WHERE id = ?').run(today, h.id);
+      return;
+    }
+
+    const title = 'Habit reminder';
+    const body = `${h.name || 'Habit'} is waiting for you.`;
+    sendReminderPush(h.user_id, title, body);
+
+    db.prepare('UPDATE habits SET last_notified_date = ? WHERE id = ?').run(today, h.id);
+  });
+}
+
+setInterval(checkReminders, 60 * 1000);
+// Run once on startup after a short delay
+setTimeout(checkReminders, 5 * 1000);
