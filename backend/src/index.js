@@ -24,8 +24,11 @@ fs.mkdirSync(path.dirname(dbFile), { recursive: true });
 
 // ----- Express App -----
 const app = express();
-app.use(cors({ origin: 'http://localhost:5173' }));
-app.use(express.json());
+app.use(cors({
+  origin: (origin, callback) => callback(null, true),
+  credentials: true
+}));
+
 
 // ----- Database Setup -----
 const db = new Database(dbFile);
