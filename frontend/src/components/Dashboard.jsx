@@ -374,7 +374,9 @@ export default function Dashboard() {
 
   // --- Styles ---
   const container = {
-    minHeight: "100vh",
+    minHeight: "100dvh",
+    height: "100dvh",
+    width: "100%",
     margin: 0,
     padding: "1.5rem 1rem 3rem",
     fontFamily: "'Poppins', 'Space Grotesk', system-ui, -apple-system, sans-serif",
@@ -382,6 +384,9 @@ export default function Dashboard() {
     color: "var(--theme-fg, #e5e7eb)",
     display: "flex",
     justifyContent: "center",
+    overflowY: "auto",
+    overflowX: "hidden",
+    WebkitOverflowScrolling: "touch",
   };
 
   const inner = {

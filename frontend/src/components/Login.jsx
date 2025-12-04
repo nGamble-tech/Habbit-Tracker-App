@@ -52,7 +52,8 @@ export default function Login() {
     <PageTransition>
       <div
         style={{
-          minHeight: "100vh",
+          minHeight: "100dvh",
+          height: "100dvh",
           width: "100vw",
           overflow: "hidden",
           position: "relative",
