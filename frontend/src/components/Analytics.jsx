@@ -89,13 +89,17 @@ export default function Analytics({ onBack }) {
 
   const styles = {
     page: {
-      minHeight: "100vh",
+      minHeight: "100dvh",
+      height: "100dvh",
       background: "var(--theme-bg, #0f172a)",
       color: "var(--theme-fg, #e2e8f0)",
       padding: "1.5rem 1rem 3rem",
       fontFamily: "'Poppins', 'Space Grotesk', system-ui, sans-serif",
       display: "flex",
       justifyContent: "center",
+      overflowY: "auto",
+      overflowX: "hidden",
+      WebkitOverflowScrolling: "touch",
     },
     inner: {
       width: "100%",

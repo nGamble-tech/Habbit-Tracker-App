@@ -277,11 +277,15 @@ export default function Settings({ onBack }) {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
+        height: "100dvh",
         padding: "1.5rem",
         background: "var(--theme-bg, #0f172a)",
         color: "var(--theme-fg, #e2e8f0)",
         fontFamily: "'Poppins', 'Space Grotesk', system-ui, sans-serif",
+        overflowY: "auto",
+        overflowX: "hidden",
+        WebkitOverflowScrolling: "touch",
       }}
     >
       <div style={{ maxWidth: 640, margin: "0 auto", display: "flex", flexDirection: "column", gap: "1rem" }}>
