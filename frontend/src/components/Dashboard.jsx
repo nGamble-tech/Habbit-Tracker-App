@@ -725,7 +725,7 @@ export default function Dashboard() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
           >
-            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "#f8fafc" }}>
+            <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--theme-fg, #0b1220)" }}>
               Add a habit
             </div>
             <input

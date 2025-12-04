@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import { useAuth } from "../context/AuthContext";
+import { applyTheme, getStoredTheme } from "../styles/theme";
 
 export default function Settings({ onBack }) {
   const { user, login, logout } = useAuth();
 
-  const [theme, setTheme] = useState(localStorage.getItem("theme") || "system");
+  const [theme, setTheme] = useState(getStoredTheme());
   const [reminderTime, setReminderTime] = useState(
     localStorage.getItem("reminder_time") || ""
   );
@@ -47,46 +48,10 @@ export default function Settings({ onBack }) {
     })();
   }, []);
 
-  // Apply theme when saved
+  // Apply theme when saved/changed
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
-
-  function applyTheme(mode) {
-    const root = document.documentElement;
-    const prefersDark =
-      window.matchMedia &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const resolved = mode === "system" ? (prefersDark ? "dark" : "light") : mode;
-    const themes = {
-      light: {
-        bg: "#f8fafc",
-        fg: "#0b1220",
-        card: "#ffffff",
-        border: "rgba(15,23,42,0.12)",
-        muted: "#475569",
-        accent: "#2563eb",
-        accent2: "#22c55e",
-        inputBg: "#ffffff",
-      },
-      dark: {
-        bg: "#0b1220",
-        fg: "#e2e8f0",
-        card: "rgba(255,255,255,0.06)",
-        border: "rgba(226,232,240,0.12)",
-        muted: "#cbd5e1",
-        accent: "#6366f1",
-        accent2: "#22c55e",
-        inputBg: "rgba(15,23,42,0.5)",
-      },
-    };
-    const t = themes[resolved] || themes.dark;
-    Object.entries(t).forEach(([k, v]) => {
-      root.style.setProperty(`--theme-${k}`, v);
-    });
-    document.body.style.background = t.bg;
-    document.body.style.color = t.fg;
-  }
 
   const saveAppearance = async () => {
     setBusy(true);
@@ -223,16 +188,6 @@ export default function Settings({ onBack }) {
       setStatus(e.message || "Failed to delete account");
     } finally {
       setBusy(false);
-    }
-  };
-
-  const validateToken = async () => {
-    setStatus("Checking token...");
-    try {
-      const res = await api.validateToken();
-      setStatus(`Token valid for ${res?.user?.username || "user"}`);
-    } catch (e) {
-      setStatus(e.message || "Token invalid");
     }
   };
 
@@ -408,14 +363,6 @@ export default function Settings({ onBack }) {
           <div style={{ display: "flex", gap: "0.6rem", flexWrap: "wrap" }}>
             <button
               type="button"
-              onClick={validateToken}
-              disabled={busy}
-              style={{ ...btn, background: "rgba(226,232,240,0.12)", color: "var(--theme-fg, #e2e8f0)" }}
-            >
-              Validate token
-            </button>
-            <button
-              type="button"
               onClick={deleteAccount}
               disabled={busy}
               style={{
@@ -476,9 +423,11 @@ export default function Settings({ onBack }) {
           <div
             style={{
               ...card,
-              background: "rgba(248,113,113,0.08)",
-              border: "1px solid rgba(248,113,113,0.25)",
-              color: "#fecdd3",
+              background: "linear-gradient(135deg, #22c55e, #3b82f6)",
+              color: "#0b1220",
+              border: "none",
+              fontWeight: 800,
+              boxShadow: "0 10px 30px rgba(34,197,94,0.35)",
             }}
           >
             {status}

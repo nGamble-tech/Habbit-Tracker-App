@@ -161,10 +161,11 @@ export default function Analytics({ onBack }) {
                   border: "none",
                   borderRadius: 10,
                   padding: "0.5rem 0.9rem",
-                  background: "rgba(226,232,240,0.12)",
-                  color: "#e2e8f0",
+                  background: "linear-gradient(135deg, #22c55e, #3b82f6)",
+                  color: "#0b1220",
                   cursor: "pointer",
-                  boxShadow: "0 0 0 1px rgba(226,232,240,0.18)",
+                  fontWeight: 800,
+                  boxShadow: "0 10px 24px rgba(34,197,94,0.35)",
                 }}
               >
                 ← Back to dashboard
